@@ -1,9 +1,15 @@
 {
   "name": "leaddocket-typescript",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "A strongly-typed API client library for Lead Docket, automatically generated from the official OpenAPI schema.",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "prepublishOnly": "npm run build",
     "test": "vitest run",
     "build": "tsup",
     "lint": "eslint .",
