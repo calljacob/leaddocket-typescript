@@ -1,7 +1,7 @@
 # Lead Docket TypeScript API Client
 
 [![npm version](https://badge.fury.io/js/leaddocket-typescript.svg)](https://badge.fury.io/js/leaddocket-typescript)
-[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 A strongly-typed, auto-generated TypeScript API client library for the [Lead Docket API](https://calljacob.leaddocket.com/api/explore/index.html).
 
@@ -81,4 +81,4 @@ npm run lint
 
 ## License
 
-ISC
+MIT

@@ -29,7 +29,7 @@
     "openapi"
   ],
   "author": "bhubbard",
-  "license": "ISC",
+  "license": "MIT",
   "type": "commonjs",
   "bugs": {
     "url": "https://github.com/calljacob/leaddocket-typescript/issues"
