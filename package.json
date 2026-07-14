@@ -1,6 +1,6 @@
 {
   "name": "@calljacob/leaddocket-typescript",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A strongly-typed API client library for Lead Docket, automatically generated from the official OpenAPI schema.",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
