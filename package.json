@@ -19,8 +19,16 @@
     "type": "git",
     "url": "git+https://github.com/calljacob/leaddocket-typescript.git"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "leaddocket",
+    "lead-docket",
+    "api",
+    "client",
+    "typescript",
+    "sdk",
+    "openapi"
+  ],
+  "author": "bhubbard",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
