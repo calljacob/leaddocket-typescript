@@ -3,7 +3,7 @@
 [![npm version](https://badge.fury.io/js/leaddocket-typescript.svg)](https://badge.fury.io/js/leaddocket-typescript)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-A strongly-typed, auto-generated TypeScript API client library for the [Lead Docket API](https://calljacob.leaddocket.com/api/explore/index.html).
+A strongly-typed, auto-generated TypeScript API client library for the [Lead Docket API](https://{example}.leaddocket.com/api/explore/index.html).
 
 This library provides full TypeScript definitions, autocomplete, and a native `fetch` implementation for all 114 Lead Docket API endpoints.
 
@@ -30,7 +30,7 @@ import { client, ContactsService, LeadsService } from 'leaddocket-typescript';
 
 // 1. Configure the client
 client.setConfig({
-  baseUrl: 'https://calljacob.leaddocket.com', // or your specific domain
+  baseUrl: 'https://{example}.leaddocket.com', // Replace {example} with your organization's subdomain
   headers: {
     Authorization: 'Bearer YOUR_API_TOKEN',
   },
