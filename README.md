@@ -62,6 +62,63 @@ fetchLeads();
 - **Fully Typed:** Generated directly from the official OpenAPI v3 schema.
 - **Zero Dependencies:** Built on the native web `fetch` API. Works in Node.js 18+, browsers, Edge runtime, Next.js, and Cloudflare Workers.
 - **Comprehensive:** Covers all 114 endpoints across Leads, Contacts, Opportunities, External Calls, Settlements, and more.
+- **Mockable:** Includes a full in-memory mock API that responds to every generated endpoint and emits webhook events for API-driven mutations.
+
+## Mock API and Webhooks
+
+Use `createLeadDocketMockApi()` in tests, local demos, or integration development when you want Lead Docket-compatible responses without calling a real account.
+
+```typescript
+import {
+  client,
+  contactsAdd,
+  createLeadDocketMockApi,
+} from 'leaddocket-typescript';
+
+const mock = createLeadDocketMockApi({
+  seed: {
+    contacts: [{ Id: 1, FirstName: 'Existing', LastName: 'Contact' }],
+    contactCustomFields: [
+      { Id: 101, FieldName: 'Preferred Language', Location: 'Contact', FieldType: 'Text' },
+    ],
+    customFieldValues: {
+      contacts: {
+        1: { 101: 'Spanish' },
+      },
+    },
+  },
+});
+
+mock.onWebhook((event) => {
+  console.log('Webhook:', event.event, event.data);
+});
+
+client.setConfig({
+  baseUrl: mock.baseUrl,
+  fetch: mock.fetch,
+});
+
+await contactsAdd({
+  body: {
+    firstName: 'Ada',
+    lastName: 'Lovelace',
+    email: 'ada@example.com',
+  },
+});
+
+console.log(mock.getRequests());
+console.log(mock.getWebhookEvents()); // includes contact.created
+```
+
+The mock supports:
+
+- every operation in `openapi.json` via the same generated SDK methods;
+- in-memory stores for common Lead Docket resources, including contacts, leads, opportunities, tasks, referrals, statuses, settlements, expenses, messages, external calls, users, and lead forms;
+- seeding/resetting data with `seed`, `setStore`, `getStore`, and `reset`;
+- developer-defined custom fields through `contactCustomFields`, `customFields`, and `customFieldValues`, returned as Lead Docket-style `CustomFields` arrays on contacts, leads, and opportunities;
+- API-driven webhook events for non-`GET` calls, such as `contact.created`, `lead.updated`, `task.completed`, or `message.sent`;
+- manually emitted webhooks with `mock.emitWebhook(...)` for events that originate outside an API call;
+- webhook subscriptions via local handlers or outbound `POST` delivery to a URL.
 
 ## Development
 
