@@ -122,3 +122,5 @@ dist
 # Build output
 dist/
 openapi.json
+.turbo/
+.wrangler/
