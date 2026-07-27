@@ -131,7 +131,9 @@ type RequestHandlerContext = NormalizedRequest & RouteMatch;
 
 const JSON_HEADERS = { 'content-type': 'application/json' };
 const ALL_ROUTES = [...mockRouteDefinitions];
-const ROUTE_MATCHERS = ALL_ROUTES.map((route) => ({ route, matcher: createPathMatcher(route.path) }));
+const ROUTE_MATCHERS = ALL_ROUTES.map((route) => ({ route, matcher: createPathMatcher(route.path) })).sort(
+  (a, b) => routeSpecificity(b.route.path) - routeSpecificity(a.route.path),
+);
 
 const DEFAULT_BASE_URL = 'https://mock.leaddocket.local';
 
@@ -982,6 +984,12 @@ function sampleSettlement(id: number): Record<string, unknown> {
 
 function sampleExpense(id: number): Record<string, unknown> {
   return { id, expenseId: id, leadId: 1, amount: 100, description: `Mock Expense ${id}` };
+}
+
+function routeSpecificity(path: string): number {
+  const parameterCount = (path.match(/\{/g) ?? []).length;
+  const literalLength = path.replace(/\{[^}]+\}/g, '').length;
+  return literalLength * 10 - parameterCount;
 }
 
 function createPathMatcher(path: string): { regex: RegExp; names: string[] } {

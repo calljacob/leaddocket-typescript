@@ -6,6 +6,10 @@ import {
   contactsGetById,
   contactsPutUpdateCustomFields,
   createLeadDocketMockApi,
+  customFieldsGet,
+  leadsGetById,
+  leadsGetCustomField,
+  leadsPutUpdateCustomField,
   mockRouteDefinitions,
 } from '../src/index';
 
@@ -29,8 +33,9 @@ describe('Lead Docket mock API', () => {
       });
 
       expect(response.ok, `${route.method} ${route.path}`).toBe(true);
-      if (response.status !== 204 && response.status !== 205) {
-        await expect(response.json(), `${route.method} ${route.path}`).resolves.toBeDefined();
+      const responseText = await response.text();
+      if (responseText) {
+        expect(() => JSON.parse(responseText), `${route.method} ${route.path}`).not.toThrow();
       }
     }
   });
@@ -109,6 +114,92 @@ describe('Lead Docket mock API', () => {
     expect(updated.data).toMatchObject({
       CustomFields: expect.arrayContaining([{ CustomFieldId: 102, Name: 'VIP', Value: 'true' }]),
     });
+  });
+
+  it('supports lead custom field definitions, values, and single-field updates', async () => {
+    const mock = createLeadDocketMockApi({
+      seed: {
+        leads: [{ Id: 10, FirstName: 'Grace', LastName: 'Hopper', Code: 'LEAD-10' }],
+        customFields: [{ Id: 201, FieldName: 'Estimated Case Value', Location: 'Lead', FieldType: 'Currency' }],
+        customFieldValues: {
+          leads: {
+            10: {
+              201: '5000',
+            },
+          },
+        },
+      },
+    });
+
+    client.setConfig({ baseUrl: mock.baseUrl, fetch: mock.fetch });
+
+    const definitions = await customFieldsGet();
+    expect(definitions.data).toEqual(expect.arrayContaining([expect.objectContaining({ Id: 201, FieldName: 'Estimated Case Value' })]));
+
+    const lead = await leadsGetById({ path: { id: 10 } });
+    expect(lead.data).toMatchObject({
+      Id: 10,
+      CustomFields: [{ CustomFieldId: 201, Name: 'Estimated Case Value', Value: '5000' }],
+    });
+
+    await leadsPutUpdateCustomField({ query: { id: 201, leadId: 10, value: '7500' } });
+
+    const field = await leadsGetCustomField({ query: { id: 201, leadId: 10 } });
+    expect(field.data).toMatchObject({ CustomFieldId: 201, Name: 'Estimated Case Value', Value: '7500' });
+
+    const updated = await leadsGetById({ path: { id: 10 } });
+    expect(updated.data).toMatchObject({
+      CustomFields: [{ CustomFieldId: 201, Name: 'Estimated Case Value', Value: '7500' }],
+    });
+  });
+
+  it('filters webhook subscriptions and supports unsubscribe', async () => {
+    const mock = createLeadDocketMockApi();
+    const received: string[] = [];
+    const unsubscribe = mock.onWebhook((event) => received.push(event.event), ['contact.*']);
+
+    await mock.emitWebhook({ event: 'contact.created', entity: 'contact', action: 'created' });
+    await mock.emitWebhook({ event: 'lead.created', entity: 'lead', action: 'created' });
+    unsubscribe();
+    await mock.emitWebhook({ event: 'contact.updated', entity: 'contact', action: 'updated' });
+
+    expect(received).toEqual(['contact.created']);
+    expect(mock.getWebhookEvents().map((event) => event.event)).toEqual(['contact.created', 'lead.created', 'contact.updated']);
+  });
+
+  it('tracks and clears request history and can reset seeded state', async () => {
+    const mock = createLeadDocketMockApi({
+      seed: {
+        contacts: [{ Id: 7, FirstName: 'Original', LastName: 'Contact' }],
+      },
+    });
+
+    client.setConfig({ baseUrl: mock.baseUrl, fetch: mock.fetch });
+
+    await contactsGetById({ path: { id: 7 } });
+    expect(mock.getRequests()).toHaveLength(1);
+
+    mock.clearRequests();
+    expect(mock.getRequests()).toHaveLength(0);
+
+    mock.setStore('contacts', [{ Id: 8, FirstName: 'Replacement', LastName: 'Contact' }]);
+    expect(mock.getStore('contacts')).toEqual([expect.objectContaining({ Id: 8 })]);
+
+    mock.reset({ contacts: [{ Id: 9, FirstName: 'Reset', LastName: 'Contact' }] });
+    expect(mock.getRequests()).toHaveLength(0);
+    expect(mock.getWebhookEvents()).toHaveLength(0);
+    expect(mock.getStore('contacts')).toEqual([expect.objectContaining({ Id: 9, FirstName: 'Reset' })]);
+  });
+
+  it('returns a useful 404 response for unknown routes', async () => {
+    const mock = createLeadDocketMockApi();
+
+    const response = await mock.fetch(`${mock.baseUrl}/api/not-a-real-route`);
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(body).toMatchObject({ message: 'No Lead Docket mock route found for GET /api/not-a-real-route' });
+    expect(body.knownRoutes).toContain('GET /api/contacts/{id}');
   });
 
   it('supports manually emitted non-API webhooks', async () => {

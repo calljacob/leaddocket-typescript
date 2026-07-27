@@ -1,7 +1,5 @@
-import { defineConfig } from '@hey-api/openapi-ts';
-
-export default defineConfig({
+export default {
   client: '@hey-api/client-fetch',
   input: 'openapi.json',
   output: 'src/client',
-});
+};

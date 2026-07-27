@@ -1,6 +1,6 @@
 # Lead Docket TypeScript API Client
 
-[![npm version](https://badge.fury.io/js/leaddocket-typescript.svg)](https://badge.fury.io/js/leaddocket-typescript)
+[![npm version](https://badge.fury.io/js/%40calljacob%2Fleaddocket-typescript.svg)](https://badge.fury.io/js/%40calljacob%2Fleaddocket-typescript)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 A strongly-typed, auto-generated TypeScript API client library for the [Lead Docket API](https://{example}.leaddocket.com/api/explore/index.html).
@@ -10,15 +10,15 @@ This library provides full TypeScript definitions, autocomplete, and a native `f
 ## Installation
 
 ```bash
-npm install leaddocket-typescript
+npm install @calljacob/leaddocket-typescript
 ```
 or
 ```bash
-yarn add leaddocket-typescript
+yarn add @calljacob/leaddocket-typescript
 ```
 or
 ```bash
-pnpm add leaddocket-typescript
+pnpm add @calljacob/leaddocket-typescript
 ```
 
 ## Usage
@@ -26,7 +26,7 @@ pnpm add leaddocket-typescript
 You can use the exported `client` instance to configure your credentials and base URL globally.
 
 ```typescript
-import { client, ContactsService, LeadsService } from 'leaddocket-typescript';
+import { client, leadsGetByStatus } from '@calljacob/leaddocket-typescript';
 
 // 1. Configure the client
 client.setConfig({
@@ -36,11 +36,13 @@ client.setConfig({
   },
 });
 
-// 2. Call an endpoint using one of the generated services
+// 2. Call an endpoint using one of the generated SDK functions
 async function fetchLeads() {
   try {
-    const { data, error } = await LeadsService.leadsGetByStatus({
-      statusId: 123,
+    const { data, error } = await leadsGetByStatus({
+      query: {
+        status: 123,
+      },
     });
 
     if (error) {
@@ -73,7 +75,7 @@ import {
   client,
   contactsAdd,
   createLeadDocketMockApi,
-} from 'leaddocket-typescript';
+} from '@calljacob/leaddocket-typescript';
 
 const mock = createLeadDocketMockApi({
   seed: {

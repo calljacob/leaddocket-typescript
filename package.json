@@ -1,13 +1,23 @@
 {
   "name": "@calljacob/leaddocket-typescript",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "A strongly-typed API client library for Lead Docket, automatically generated from the official OpenAPI schema.",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md",
+    "NOTICE.md"
   ],
+  "sideEffects": false,
   "scripts": {
     "prepublishOnly": "npm run build",
     "test": "vitest run",
@@ -31,13 +41,21 @@
   "author": "bhubbard",
   "license": "MIT",
   "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  },
   "bugs": {
     "url": "https://github.com/calljacob/leaddocket-typescript/issues"
   },
   "homepage": "https://github.com/calljacob/leaddocket-typescript#readme",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@hey-api/openapi-ts": "^0.99.0",
     "@types/node": "^26.1.1",
     "eslint": "^10.7.0",
     "eslint-config-prettier": "^10.1.8",
