@@ -87,7 +87,11 @@ describe('Lead Docket opportunity integrations', () => {
       apiCallDriven: false,
       operationId: 'integrationForm.submit',
       query: {},
-      data: expect.objectContaining({ Email: 'ada@example.com' }),
+      data: undefined,
+      payload: expect.objectContaining({
+        EventType: 'Opportunity Created',
+        Email: 'ada@example.com',
+      }),
     });
     expect(delivered).toHaveLength(1);
     expect(mock.getRequests()).toHaveLength(3);
@@ -262,9 +266,12 @@ describe('Lead Docket opportunity integrations', () => {
         expect.objectContaining({ CustomFieldId: 303, Value: 'Accepted' }),
       ]),
     });
-    expect(mock.getWebhookEvents()[0].data).toMatchObject({
-      MarketingSource: 'Custom Integration 40',
-      ReferralTier: 'priority',
+    expect(mock.getWebhookEvents()[0]).toMatchObject({
+      data: undefined,
+      payload: expect.objectContaining({
+        EventType: 'Opportunity Created',
+        MarketingSource: 'Custom Integration 40',
+      }),
     });
 
     const invalidOption = await mock.fetch('/opportunities/form/40?apikey=local-custom-form-key', {

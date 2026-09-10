@@ -1,3 +1,5 @@
+import { webhookPayloadTemplates } from './webhook-templates.gen';
+
 export const webhookKinds = [
   'contact-added',
   'contact-edited',
@@ -195,6 +197,7 @@ export type WebhookObservabilityInput = {
 };
 
 export type WebhookProjectionFacts = {
+  hostname?: string;
   record?: WebhookRecord | null;
   contact?: WebhookRecord | null;
   lead?: WebhookRecord | null;
@@ -266,6 +269,8 @@ export function projectWebhook(
   const catalog = webhookCatalog[kind];
   const records = resolveRecords(kind, facts);
   const payload: LeadDocketWebhookPayload = {
+    ...webhookPayloadTemplates[kind],
+    hostname: facts.hostname ?? 'mock.leaddocket.local',
     EventType: catalog.eventType,
     EventTypeId: catalog.eventTypeId,
   };

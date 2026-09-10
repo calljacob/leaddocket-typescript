@@ -11,6 +11,9 @@ export default defineConfig({
   pack: {
     entry: {
       index: 'src/index.ts',
+      client: 'src/client-entry.ts',
+      mock: 'src/mock-entry.ts',
+      discovery: 'src/discovery-entry.ts',
       'mock/server': 'src/mock/server.ts',
       'mock/faker': 'src/mock/faker.ts',
       'mock/cli': 'src/mock/cli.ts',

@@ -15,6 +15,7 @@ const index = {
     'Sanitized Lead Docket webhook payload examples. All people and identifiers are fictional.',
   examples: [],
 };
+const templates = {};
 let changed = false;
 
 for (const [fileIndex, file] of files.entries()) {
@@ -27,6 +28,9 @@ for (const [fileIndex, file] of files.entries()) {
     changed = true;
     if (!checkOnly) await writeFile(path, formatted);
   }
+  templates[file.replace(/\.json$/, '')] = Object.fromEntries(
+    Object.entries(sanitized).filter(([key]) => !key.startsWith('_request_')),
+  );
   index.examples.push({
     id: file.replace(/\.json$/, ''),
     label: titleCase(file.replace(/\.json$/, '')),
@@ -48,6 +52,21 @@ try {
 if (currentIndex !== indexContents) {
   changed = true;
   if (!checkOnly) await writeFile(indexPath, indexContents);
+}
+
+const templatesPath = join(projectRoot, 'src', 'mock', 'webhook-templates.gen.ts');
+const templatesContents = `// Generated from sanitized examples/webhooks payloads. Do not edit by hand.\n\nexport const webhookPayloadTemplates = ${JSON.stringify(templates, null, 2)} as const;\n`;
+let currentTemplates = '';
+try {
+  currentTemplates = await readFile(templatesPath, 'utf8');
+} catch (error) {
+  if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') {
+    throw error;
+  }
+}
+if (currentTemplates !== templatesContents) {
+  changed = true;
+  if (!checkOnly) await writeFile(templatesPath, templatesContents);
 }
 
 if (checkOnly && changed) {

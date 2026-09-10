@@ -16,6 +16,36 @@
         "default": "./dist/index.cjs"
       }
     },
+    "./client": {
+      "import": {
+        "types": "./dist/client.d.mts",
+        "default": "./dist/client.mjs"
+      },
+      "require": {
+        "types": "./dist/client.d.cts",
+        "default": "./dist/client.cjs"
+      }
+    },
+    "./mock": {
+      "import": {
+        "types": "./dist/mock.d.mts",
+        "default": "./dist/mock.mjs"
+      },
+      "require": {
+        "types": "./dist/mock.d.cts",
+        "default": "./dist/mock.cjs"
+      }
+    },
+    "./discovery": {
+      "import": {
+        "types": "./dist/discovery.d.mts",
+        "default": "./dist/discovery.mjs"
+      },
+      "require": {
+        "types": "./dist/discovery.d.cts",
+        "default": "./dist/discovery.cjs"
+      }
+    },
     "./mock/server": {
       "import": {
         "types": "./dist/mock/server.d.mts",
@@ -58,6 +88,7 @@
     "format": "vp fmt",
     "sanitize:webhook-examples": "node scripts/sanitize-webhook-examples.mjs",
     "check:webhook-examples": "node scripts/sanitize-webhook-examples.mjs --check",
+    "generate:mock-metadata": "node scripts/generate-mock-metadata.mjs",
     "check:mock-metadata": "node scripts/check-mock-metadata.mjs",
     "check:package-contract": "node scripts/check-package-contract.mjs",
     "mock": "vp pack && node dist/mock/cli.cjs",

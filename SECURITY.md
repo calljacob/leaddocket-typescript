@@ -31,4 +31,8 @@ When using this package:
 - copy `.dev.vars.example` to the Git-ignored `.dev.vars` file for local live calls;
 - prefer environment variables or a secret manager for credentials;
 - avoid logging real Lead Docket API tokens, webhook payloads, or personally identifiable information;
-- treat mock seed data as potentially sensitive if copied from production systems.
+- treat mock seed data as potentially sensitive if copied from production systems;
+- keep the server bound to loopback unless `server.adminAuth` is configured;
+- allowlist every non-loopback webhook destination with `server.webhookEgress.allowedOrigins`;
+- leave retained request/event bodies disabled unless debugging requires them;
+- use synchronized mock-only integration keys rather than reusing live form capability keys.

@@ -27,7 +27,12 @@ If the Lead Docket OpenAPI schema changes, update `openapi.json` and regenerate 
 vp dlx @hey-api/openapi-ts@0.99.0 -c openapi-ts.config.ts
 ```
 
-The generator is intentionally invoked through `vp dlx` so day-to-day installs do not include the OpenAPI generation dependency tree.
+The generator is intentionally invoked through `vp dlx` so day-to-day installs do not include the OpenAPI generation dependency tree. Regenerate mock route/schema metadata from the same source:
+
+```bash
+vp run generate:mock-metadata
+vp run check:mock-metadata
+```
 
 After regenerating, run:
 
@@ -62,8 +67,11 @@ When adding or changing mock behavior:
 Before opening a pull request, please verify:
 
 - [ ] `vp check` passes.
+- [ ] `vp run check:mock-metadata` passes.
+- [ ] `vp run check:webhook-examples` passes.
 - [ ] `vp test` passes.
 - [ ] `vp pack` passes.
+- [ ] `vp run check:package-contract` passes.
 - [ ] Public API changes are documented in `README.md`.
 - [ ] Notable changes are added to `CHANGELOG.md` when appropriate.
 

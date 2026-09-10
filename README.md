@@ -27,6 +27,16 @@ pnpm add @calljacob/leaddocket-typescript
 
 ## Usage
 
+Focused package entry points avoid loading mock tooling in client-only applications:
+
+```typescript
+import { client, leadsGetByStatus } from '@calljacob/leaddocket-typescript/client';
+import { createLeadDocketMockApi } from '@calljacob/leaddocket-typescript/mock';
+import { discoverLeadDocketReferenceData } from '@calljacob/leaddocket-typescript/discovery';
+```
+
+The aggregate package root remains available for backward compatibility.
+
 You can use the exported `client` instance to configure your credentials and base URL globally.
 
 ```typescript
@@ -118,9 +128,21 @@ The mock supports:
 - in-memory stores for common Lead Docket resources, including contacts, leads, opportunities, tasks, referrals, statuses, settlements, expenses, messages, external calls, users, and lead forms;
 - seeding/resetting data with `seed`, `setStore`, `getStore`, and `reset`;
 - developer-defined custom fields through `contactCustomFields`, `customFields`, and `customFieldValues`, returned as Lead Docket-style `CustomFields` arrays on contacts, leads, and opportunities;
-- API-driven webhook events for non-`GET` calls, such as `contact.created`, `lead.updated`, `task.completed`, or `message.sent`;
+- explicit operation-to-event mapping for captured Lead Docket webhook kinds, with internal observability events and flat outbound Lead Docket wire payloads kept separate;
 - manually emitted webhooks with `mock.emitWebhook(...)` for events that originate outside an API call;
 - webhook subscriptions via local handlers or outbound `POST` delivery to a URL.
+
+### Mock fidelity and validation
+
+The mock uses three fidelity tiers:
+
+1. **Stateful operation handlers** for common contacts, leads, opportunities, tasks, users, referrals, messages, expenses, settlements, Lead Forms, notes, tags, collection sections, custom fields, statuses, and command routes.
+2. **Schema-shaped reference handlers** for lookups, settings, roles, sources, referral metadata, and synchronized tenant configuration.
+3. **Generated schema fixtures** for remaining OpenAPI operations that do not yet have meaningful mutable behavior.
+
+All 114 OpenAPI routes are generated and drift-checked. The request seam validates required path/query parameters, OpenAPI `int32` ranges, required body presence, top-level body type, required top-level body properties, malformed JSON, and body-size limits. This is intentionally not a complete JSON Schema validator.
+
+Known response schemas are serialized with documented property casing and strip internal storage aliases. Valid missing primary-ID records return `404`; update commands do not silently upsert missing records. Recording, transcription, and file download operations return MP3, plain-text, and binary responses respectively.
 
 ## Local mock server and webhook UI
 
@@ -154,6 +176,28 @@ await server.close();
 
 The server binds to `127.0.0.1` by default, enables API CORS for local browser applications, limits request bodies, and prevents cross-origin admin mutations. Webhook HTTP statuses and failures are recorded without turning an otherwise successful mock API mutation into a `500` response.
 
+All `/__mock/*` routes can be protected with HTTP Basic authentication. A non-loopback hostname is rejected unless `server.adminAuth` is configured. Origin validation remains enabled as additional CSRF protection:
+
+```json
+{
+  "server": {
+    "hostname": "0.0.0.0",
+    "adminAuth": {
+      "username": "operator",
+      "password": "replace-with-a-local-secret"
+    },
+    "webhookEgress": {
+      "allowLoopback": true,
+      "allowedOrigins": ["https://hooks.example.test"]
+    }
+  }
+}
+```
+
+External webhook targets are denied unless their exact origin is allowlisted; redirects are rejected. Loopback targets remain enabled by default for local development. Do not commit admin credentials.
+
+Request, webhook-event, and delivery histories default to 200 entries. Request/event bodies are omitted from retained history unless `captureHistoryBodies` is explicitly enabled. Use `historyLimit: 0` to disable history or set a value up to 10,000.
+
 ### Swagger API documentation
 
 Self-hosted Swagger UI is available at the mock server root:
@@ -174,7 +218,7 @@ The raw runtime OpenAPI document is available at `/openapi.json`. Its paths, ope
 
 Sanitized examples of all 15 documented Lead Docket webhook payloads live under `examples/webhooks/`. The generated `examples/webhooks/index.json` records the event name and file for each payload.
 
-The admin page includes an event selector, formatted JSON viewer, and copy button. Examples are also available as JSON:
+The admin page includes an event selector, formatted JSON viewer, copy button, and **Send selected example** action. Example delivery sends the exact flat fixture body rather than nesting it inside the mock observability envelope. Examples are also available as JSON:
 
 ```text
 GET /__mock/webhook-examples
@@ -265,7 +309,7 @@ Configure Lead Docket-style public forms with local-only access keys:
 }
 ```
 
-Fields can target canonical opportunity properties, synchronized custom fields through `custom:<id>`, or integration-specific webhook data through `extra:<name>`. Select and radio options accept either plain strings or `{ "label", "value" }` objects when the displayed text should differ from the stored value. Checkbox controls support `checkedValue` and `uncheckedValue`, while `type: "hidden"` applies a non-user-editable configured value. See integration `40` in `leaddocket.mock.example.json` for a complete example.
+Fields preserve their live `sourceName` separately from the destination key, so third-party clients can submit the same field names they use with Lead Docket. Fields can target canonical opportunity properties, synchronized custom fields through `custom:<id>`, or integration-specific webhook data through `extra:<name>`. Select and radio options accept either plain strings or `{ "label", "value" }` objects when the displayed text should differ from the stored value. Checkbox controls support `checkedValue` and `uncheckedValue`, while `type: "hidden"` applies a non-user-editable configured value. See integration `40` in `leaddocket.mock.example.json` for a complete example.
 
 After starting the mock server, the form is available at:
 
@@ -279,6 +323,8 @@ Every configured integration appears in the administration UI with separate **Op
 http://127.0.0.1:4010/opportunities/form/28?apikey=local-integration-28&preview=true
 ```
 
+Standard forms support URL-encoded, multipart, and JSON submissions, including repeated keys, checkbox groups, and multi-select values. Imported forms preserve method and encoding. `/Opportunities/FormJson/{id}` and `/Opportunities/FormJsonNested/{id}` are also supported.
+
 Preview mode renders the exact configured fields and user-defined values, but disables browser submission and rejects POST requests without creating an opportunity or webhook. A valid non-preview browser or JSON submission:
 
 1. validates only the configured fields;
@@ -291,7 +337,7 @@ Integration access keys are removed from request history and webhook metadata. U
 
 ### Synchronize a live setup
 
-Lead Docket's REST API can list contact and lead/opportunity custom fields, but it does not expose an endpoint that lists Opportunity Integrations. Integration Definitions are available only as individual form URLs. Provide every Definitions/preview URL through `.dev.vars`, `integrationPreviewUrls` in the ignored mock config, or the admin import textarea.
+Lead Docket's REST API can list contact and lead/opportunity custom fields, but it does not expose an endpoint that lists Opportunity Integrations. Integration Definitions are available only as individual form URLs. Prefer providing every Definitions/preview URL through `.dev.vars`; `integrationPreviewUrls` in the ignored mock config and the admin import textarea are also supported for local use.
 
 Synchronization performs read-only requests only:
 
@@ -331,7 +377,7 @@ You can also run `sync-custom-fields`, `sync-reference-data`, or `sync-integrati
 
 The CLI automatically loads `.dev.vars`. Variables already present in the process environment take precedence. If the live setup uses bearer authentication, comment out `LEAD_DOCKET_API_KEY` and set `LEAD_DOCKET_BEARER_TOKEN` instead; exactly one authentication method must be configured. Business tracking-phone lookup values are excluded by default; set `LEAD_DOCKET_INCLUDE_PHONE_NUMBERS=true` only when that metadata is required.
 
-`sync-live` atomically updates custom fields, statuses/substatuses, roles, sources, allowed lookup catalogs, Lead Forms, referral practice areas, settings, `integrationPreviewUrls`, and `opportunityIntegrations` in `leaddocket.mock.json`, preserving unrelated settings. The preview importer maps recognizable incoming names to canonical opportunity fields, matches labels/codes against synchronized custom fields, preserves unknown fields as `extra:<incoming-name>`, and retains user-defined option label/value pairs. Review the generated mappings before relying on them in tests.
+`sync-live` atomically updates custom fields, statuses/substatuses, roles, sources, allowed lookup catalogs, Lead Forms, referral practice areas, settings, and `opportunityIntegrations` in `leaddocket.mock.json`, preserving unrelated settings. Imported forms receive generated mock-only access keys; preview URLs supplied through `.dev.vars` are not copied into the config. The preview importer maps recognizable incoming names to canonical opportunity fields, matches labels/codes against synchronized custom fields, preserves unknown fields as `extra:<incoming-name>`, and retains user-defined option label/value pairs. Review the generated mappings before relying on them in tests.
 
 Because integration URLs contain per-form capability keys, both `.dev.vars` and `leaddocket.mock.json` are ignored by Git. Their committed example files contain placeholders only.
 
@@ -366,8 +412,11 @@ This project uses [Vite+](https://viteplus.dev/) for dependency management, chec
 ```bash
 vp install
 vp check
+vp run check:mock-metadata
+vp run check:webhook-examples
 vp test
 vp pack
+vp run check:package-contract
 ```
 
 The equivalent package scripts remain available for package-manager integrations.

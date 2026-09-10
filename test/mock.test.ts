@@ -33,7 +33,7 @@ describe('Lead Docket mock API', () => {
 
       expect(response.status, `${route.method} ${route.path}`).toBeLessThan(500);
       const responseText = await response.text();
-      if (responseText) {
+      if (responseText && response.headers.get('content-type')?.includes('json')) {
         expect(() => JSON.parse(responseText), `${route.method} ${route.path}`).not.toThrow();
       }
     }
@@ -53,14 +53,14 @@ describe('Lead Docket mock API', () => {
 
     const { data, error } = await contactsAdd({
       body: {
-        firstName: 'Ada',
-        lastName: 'Lovelace',
-        email: 'ada@example.com',
-      } as never,
+        FirstName: 'Ada',
+        LastName: 'Lovelace',
+        Email: 'ada@example.com',
+      },
     });
 
     expect(error).toBeUndefined();
-    expect(data).toMatchObject({ firstName: 'Ada', lastName: 'Lovelace' });
+    expect(data).toMatchObject({ FirstName: 'Ada', LastName: 'Lovelace' });
     expect(mock.getRequests()).toHaveLength(1);
     expect(webhookEvents).toEqual(['contact.created']);
     expect(mock.getWebhookEvents()[0]).toMatchObject({
@@ -242,6 +242,32 @@ describe('Lead Docket mock API', () => {
     expect(JSON.stringify(mock.getStore('contacts'))).not.toContain('4.233434');
   });
 
+  it('validates required inputs and returns declared media types', async () => {
+    const mock = createLeadDocketMockApi();
+
+    const missingQuery = await mock.fetch(`${mock.baseUrl}/api/lookups`);
+    expect(missingQuery.status).toBe(400);
+    expect(await missingQuery.json()).toEqual({
+      message: 'Missing required query parameter "type".',
+    });
+
+    const malformedJson = await mock.fetch(`${mock.baseUrl}/api/contacts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{not-json',
+    });
+    expect(malformedJson.status).toBe(400);
+
+    const recording = await mock.fetch(`${mock.baseUrl}/api/externalcalls/1/recording`);
+    expect(recording.headers.get('content-type')).toBe('audio/mp3');
+    expect(new Uint8Array(await recording.arrayBuffer()).slice(0, 3)).toEqual(
+      new Uint8Array([0x49, 0x44, 0x33]),
+    );
+
+    const transcription = await mock.fetch(`${mock.baseUrl}/api/externalcalls/1/transcription`);
+    expect(transcription.headers.get('content-type')).toContain('text/plain');
+  });
+
   it('returns a useful 404 response for unknown routes', async () => {
     const mock = createLeadDocketMockApi();
 
@@ -267,7 +293,7 @@ describe('Lead Docket mock API', () => {
 
     client.setConfig({ baseUrl: mock.baseUrl, fetch: mock.fetch });
     const response = await contactsAdd({
-      body: { firstName: 'Delivery', lastName: 'Failure' } as never,
+      body: { FirstName: 'Delivery', LastName: 'Failure' },
     });
 
     expect(response.error).toBeUndefined();
@@ -287,6 +313,37 @@ describe('Lead Docket mock API', () => {
         status: 500,
       }),
     ]);
+  });
+
+  it('bounds histories and redacts bodies unless explicitly enabled', async () => {
+    const mock = createLeadDocketMockApi({ historyLimit: 2 });
+    await mock.fetch(`${mock.baseUrl}/api/contacts/1`);
+    await mock.fetch(`${mock.baseUrl}/api/contacts/1`);
+    await mock.fetch(`${mock.baseUrl}/api/contacts/1`);
+    await mock.emitWebhook({
+      event: 'lead.status_changed',
+      entity: 'lead',
+      action: 'changed',
+      requestBody: { sensitive: true },
+      data: { sensitive: true },
+    });
+
+    expect(mock.getRequests()).toHaveLength(2);
+    expect(mock.getRequests().every((request) => request.body === undefined)).toBe(true);
+    expect(mock.getWebhookEvents()[0]).toMatchObject({ requestBody: undefined, data: undefined });
+
+    const inspecting = createLeadDocketMockApi({ captureHistoryBodies: true });
+    await inspecting.emitWebhook({
+      event: 'lead.status_changed',
+      entity: 'lead',
+      action: 'changed',
+      requestBody: { retained: true },
+      data: { retained: true },
+    });
+    expect(inspecting.getWebhookEvents()[0]).toMatchObject({
+      requestBody: { retained: true },
+      data: { retained: true },
+    });
   });
 
   it('supports manually emitted non-API webhooks', async () => {

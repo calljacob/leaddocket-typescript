@@ -98,7 +98,7 @@ describe('Lead Docket mock HTTP server', () => {
     const apiResponse = await fetch(`${server.origin}/api/contacts/1`);
     expect(apiResponse.ok).toBe(true);
     expect(apiResponse.headers.get('access-control-allow-origin')).toBe('*');
-    expect(await apiResponse.json()).toMatchObject({ id: 1 });
+    expect(await apiResponse.json()).toMatchObject({ Id: 1 });
 
     const adminResponse = await fetch(server.adminUrl);
     expect(adminResponse.ok).toBe(true);
@@ -140,6 +140,18 @@ describe('Lead Docket mock HTTP server', () => {
       }),
     ]);
 
+    const exampleResponse = await fetch(
+      `${server.origin}/__mock/webhook-examples/lead-created/trigger`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: server.origin },
+        body: JSON.stringify({ targetUrl: `${receiverOrigin}/webhooks/leaddocket` }),
+      },
+    );
+    expect(exampleResponse.ok).toBe(true);
+    expect(received[1]).toMatchObject({ EventType: 'Lead Created', EventTypeId: 1 });
+    expect(received[1]).not.toHaveProperty('event');
+
     const stateResponse = await fetch(`${server.origin}/__mock/state`);
     const state = (await stateResponse.json()) as {
       deliveries: Array<{ status?: number }>;
@@ -153,7 +165,10 @@ describe('Lead Docket mock HTTP server', () => {
       }>;
       webhookExamples: Array<{ id: string; label: string; eventType: string }>;
     };
-    expect(state.deliveries).toEqual([expect.objectContaining({ status: 202 })]);
+    expect(state.deliveries).toHaveLength(2);
+    expect(state.deliveries).toEqual(
+      expect.arrayContaining([expect.objectContaining({ status: 202 })]),
+    );
     expect(state.presets).toEqual(
       expect.arrayContaining([expect.objectContaining({ event: 'contact.created' })]),
     );
@@ -536,7 +551,7 @@ describe('Lead Docket mock HTTP server', () => {
     try {
       const response = await fetch(`${server.origin}/api/contacts/1`);
       expect(response.ok).toBe(true);
-      expect(await response.json()).toMatchObject({ id: 1 });
+      expect(await response.json()).toMatchObject({ Id: 1 });
     } finally {
       if (originalArrayBuffer) {
         Object.defineProperty(Response.prototype, 'arrayBuffer', originalArrayBuffer);

@@ -6,12 +6,163 @@ export type MockRouteDefinition = {
   operationId: string;
   tags: string[];
   summary: string;
+  parameters: readonly unknown[];
+  requestBodyRequired: boolean;
   status: number;
   responseSchema: unknown;
+  responseContentType: string | null;
   requestSchema: unknown;
 };
 
 export const mockRouteDefinitions = [
+  {
+    "method": "GET",
+    "path": "/api/leads/{leadId}/collectionsections",
+    "operationId": "CollectionSections_List",
+    "tags": [
+      "CollectionSections"
+    ],
+    "summary": "Retrieve all Collection Sections and section entries for a Lead",
+    "parameters": [
+      {
+        "name": "leadId",
+        "in": "path",
+        "description": "ID of the Lead",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadCollectionSectionApi"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/leads/{leadId}/collectionsections/{sectionId}",
+    "operationId": "CollectionSections_Add",
+    "tags": [
+      "CollectionSections"
+    ],
+    "summary": "Insert a new entry into a Collection Section for a Lead",
+    "parameters": [
+      {
+        "name": "leadId",
+        "in": "path",
+        "description": "ID of the Lead",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "sectionId",
+        "in": "path",
+        "description": "ID of the Collection Section",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadCollectionSectionApi"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": {
+      "$ref": "#/components/schemas/CollectionSectionUpdateApi"
+    },
+    "status": 200
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/leads/{leadId}/collectionsections/{sectionId}",
+    "operationId": "CollectionSections_Update",
+    "tags": [
+      "CollectionSections"
+    ],
+    "summary": "Update existing entries in a Collection Section for a Lead",
+    "parameters": [
+      {
+        "name": "leadId",
+        "in": "path",
+        "description": "ID of the Lead",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "sectionId",
+        "in": "path",
+        "description": "ID of the Collection Section",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadCollectionSectionApi"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": {
+      "$ref": "#/components/schemas/CollectionSectionUpdateApi"
+    },
+    "status": 200
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/leads/{leadId}/collectionsections/{sectionId}",
+    "operationId": "CollectionSections_Delete",
+    "tags": [
+      "CollectionSections"
+    ],
+    "summary": "Delete existing entries in a Collection Section for a Lead",
+    "parameters": [
+      {
+        "name": "leadId",
+        "in": "path",
+        "description": "ID of the Lead",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "sectionId",
+        "in": "path",
+        "description": "ID of the Collection Section",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadCollectionSectionApi"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": {
+      "$ref": "#/components/schemas/CollectionSectionDeleteApi"
+    },
+    "status": 200
+  },
   {
     "method": "GET",
     "path": "/api/contactcustomfields/list",
@@ -20,29 +171,16 @@ export const mockRouteDefinitions = [
       "ContactCustomFields"
     ],
     "summary": "Returns a list of contact custom fields",
+    "parameters": [],
+    "requestBodyRequired": false,
     "responseSchema": {
       "type": "array",
       "items": {
         "$ref": "#/components/schemas/CustomFieldsApi"
       }
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "POST",
-    "path": "/api/contacts",
-    "operationId": "contacts_add",
-    "tags": [
-      "Contacts"
-    ],
-    "summary": "Adds a new contact.",
-    "responseSchema": {
-      "$ref": "#/components/schemas/ContactApi"
-    },
-    "requestSchema": {
-      "$ref": "#/components/schemas/ContactUpdateApi"
-    },
     "status": 200
   },
   {
@@ -53,9 +191,23 @@ export const mockRouteDefinitions = [
       "Contacts"
     ],
     "summary": "Returns a single contact",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Lead Docket Contact ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/ContactApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -67,53 +219,26 @@ export const mockRouteDefinitions = [
       "Contacts"
     ],
     "summary": "Updates an exist contact.",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Lead Docket Contact ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
     "responseSchema": {
       "$ref": "#/components/schemas/ContactApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": {
       "$ref": "#/components/schemas/ContactUpdateApi"
     },
-    "status": 200
-  },
-  {
-    "method": "DELETE",
-    "path": "/api/contacts/{id}/tags/{contactTagId}",
-    "operationId": "contacts_deleteTag",
-    "tags": [
-      "Contacts"
-    ],
-    "summary": "Delete Tag from Contact",
-    "responseSchema": null,
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "PUT",
-    "path": "/api/contacts/{id}/tags/{tagId}",
-    "operationId": "contacts_addTag",
-    "tags": [
-      "Contacts"
-    ],
-    "summary": "Add Tag to Contact",
-    "responseSchema": null,
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/contacts/checkforrecentbyphone",
-    "operationId": "contacts_recent_by_phone",
-    "tags": [
-      "Contacts"
-    ],
-    "summary": "Search for most recent lead or opportunity by phone",
-    "responseSchema": {
-      "type": "array",
-      "items": {
-        "$ref": "#/components/schemas/CheckForRecentByPhoneModel"
-      }
-    },
-    "requestSchema": null,
     "status": 200
   },
   {
@@ -124,23 +249,22 @@ export const mockRouteDefinitions = [
       "Contacts"
     ],
     "summary": "Returns a single contact",
+    "parameters": [
+      {
+        "name": "code",
+        "in": "query",
+        "description": "Case Tracker Code",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/ContactApi"
     },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/contacts/lastupdatedsince",
-    "operationId": "leads_getByLastUpdatedSince",
-    "tags": [
-      "Contacts"
-    ],
-    "summary": "Get all contacts based on last updated date.",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadApiFlatApiPagedResponse"
-    },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -152,12 +276,25 @@ export const mockRouteDefinitions = [
       "Contacts"
     ],
     "summary": "Search for a contact by name, email, or phone",
+    "parameters": [
+      {
+        "name": "searchTerm",
+        "in": "query",
+        "description": "Search Term",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "type": "array",
       "items": {
         "$ref": "#/components/schemas/ContactApi"
       }
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -169,7 +306,30 @@ export const mockRouteDefinitions = [
       "Contacts"
     ],
     "summary": "Update Case Tracker Code on a Contact",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "query",
+        "description": "Lead Docket Contact ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "externalId",
+        "in": "query",
+        "description": "Case Tracker Code from external system",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": null,
     "status": 200
   },
@@ -181,10 +341,190 @@ export const mockRouteDefinitions = [
       "Contacts"
     ],
     "summary": "Updates custom fields on a contact",
+    "parameters": [],
+    "requestBodyRequired": true,
     "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": {
       "$ref": "#/components/schemas/CustomFieldsUpdateApi"
     },
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/contacts",
+    "operationId": "contacts_add",
+    "tags": [
+      "Contacts"
+    ],
+    "summary": "Adds a new contact.",
+    "parameters": [],
+    "requestBodyRequired": true,
+    "responseSchema": {
+      "$ref": "#/components/schemas/ContactApi"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": {
+      "$ref": "#/components/schemas/ContactUpdateApi"
+    },
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/contacts/checkforrecentbyphone",
+    "operationId": "contacts_recent_by_phone",
+    "tags": [
+      "Contacts"
+    ],
+    "summary": "Search for most recent lead or opportunity by phone",
+    "parameters": [
+      {
+        "name": "phone",
+        "in": "query",
+        "description": "Phone Number",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "type": "array",
+      "items": {
+        "$ref": "#/components/schemas/CheckForRecentByPhoneModel"
+      }
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/contacts/lastupdatedsince",
+    "operationId": "leads_getByLastUpdatedSince",
+    "tags": [
+      "Contacts"
+    ],
+    "summary": "Get all contacts based on last updated date.",
+    "parameters": [
+      {
+        "name": "date",
+        "in": "query",
+        "description": "Contacts updated since this date.",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "page",
+        "in": "query",
+        "description": "Page of the record set. Defaults to 1 if not specified.",
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 1
+        }
+      },
+      {
+        "name": "itemsPerPage",
+        "in": "query",
+        "description": "Number of items per page request. Maximum is 500, defaults to 500 if not specified.",
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 500
+        }
+      },
+      {
+        "name": "sortOrder",
+        "in": "query",
+        "description": "Order by Last Updated ascending or descending.",
+        "schema": {
+          "$ref": "#/components/schemas/SortOrder"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadApiFlatApiPagedResponse"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "PUT",
+    "path": "/api/contacts/{id}/tags/{tagId}",
+    "operationId": "contacts_addTag",
+    "tags": [
+      "Contacts"
+    ],
+    "summary": "Add Tag to Contact",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Lead Docket Contact ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "tagId",
+        "in": "path",
+        "description": "Tag ID to add",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/contacts/{id}/tags/{contactTagId}",
+    "operationId": "contacts_deleteTag",
+    "tags": [
+      "Contacts"
+    ],
+    "summary": "Delete Tag from Contact",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Lead Docket Contact ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "contactTagId",
+        "in": "path",
+        "description": "Contact Tag ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": null,
     "status": 200
   },
   {
@@ -195,30 +535,17 @@ export const mockRouteDefinitions = [
       "CustomFields"
     ],
     "summary": "Returns a list of lead custom fields",
+    "parameters": [],
+    "requestBodyRequired": false,
     "responseSchema": {
       "type": "array",
       "items": {
         "$ref": "#/components/schemas/CustomFieldsApi"
       }
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
-  },
-  {
-    "method": "POST",
-    "path": "/api/expenses",
-    "operationId": "AddExpense",
-    "tags": [
-      "Expenses"
-    ],
-    "summary": "Adds a new Expense",
-    "responseSchema": {
-      "$ref": "#/components/schemas/ExpenseApi"
-    },
-    "requestSchema": {
-      "$ref": "#/components/schemas/ExpenseAddApi"
-    },
-    "status": 201
   },
   {
     "method": "GET",
@@ -228,21 +555,23 @@ export const mockRouteDefinitions = [
       "Expenses"
     ],
     "summary": "Returns expense details by expense Id",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Expense Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/ExpenseApi"
     },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "DELETE",
-    "path": "/api/expenses/delete/{id}",
-    "operationId": "Expenses_Delete",
-    "tags": [
-      "Expenses"
-    ],
-    "summary": "Delete an Expense from the system.",
-    "responseSchema": null,
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -254,10 +583,115 @@ export const mockRouteDefinitions = [
       "Expenses"
     ],
     "summary": "Gets all expenses based in a given date range",
+    "parameters": [
+      {
+        "name": "startdate",
+        "in": "query",
+        "description": "Start of range",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "enddate",
+        "in": "query",
+        "description": "End of range",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/ExpenseApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/expenses",
+    "operationId": "AddExpense",
+    "tags": [
+      "Expenses"
+    ],
+    "summary": "Adds a new Expense",
+    "parameters": [],
+    "requestBodyRequired": true,
+    "responseSchema": {
+      "$ref": "#/components/schemas/ExpenseApi"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": {
+      "$ref": "#/components/schemas/ExpenseAddApi"
+    },
+    "status": 201
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/expenses/delete/{id}",
+    "operationId": "Expenses_Delete",
+    "tags": [
+      "Expenses"
+    ],
+    "summary": "Delete an Expense from the system.",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "ID of the Expense to delete",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/externalcalls/start",
+    "operationId": "external_calls_start",
+    "tags": [
+      "ExternalCalls"
+    ],
+    "summary": "Starts an external phone call",
+    "parameters": [],
+    "requestBodyRequired": true,
+    "responseSchema": {
+      "$ref": "#/components/schemas/CallEventResponse"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": {
+      "$ref": "#/components/schemas/StartExternalCallRequest"
+    },
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/externalcalls/end",
+    "operationId": "external_calls_end",
+    "tags": [
+      "ExternalCalls"
+    ],
+    "summary": "Ends an external phone call",
+    "parameters": [],
+    "requestBodyRequired": true,
+    "responseSchema": {
+      "$ref": "#/components/schemas/CallEventResponse"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": {
+      "$ref": "#/components/schemas/EndExternalCallRequest"
+    },
     "status": 200
   },
   {
@@ -268,9 +702,23 @@ export const mockRouteDefinitions = [
       "ExternalCalls"
     ],
     "summary": "Gets an external phone call by its unified `dbo.PhoneCalls.Id`.",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Unified phone call ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/ExternalPhoneCall"
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -282,7 +730,21 @@ export const mockRouteDefinitions = [
       "ExternalCalls"
     ],
     "summary": "Gets the recording file for an external phone call",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "External phone call ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": null,
+    "responseContentType": "audio/mp3",
     "requestSchema": null,
     "status": 200
   },
@@ -294,40 +756,354 @@ export const mockRouteDefinitions = [
       "ExternalCalls"
     ],
     "summary": "Gets the transcription file for an external phone call",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "External phone call ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": null,
+    "responseContentType": "text/plain",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/leads/{leadId}/forms",
+    "operationId": "LeadForms_GetLeadFormInvitation",
+    "tags": [
+      "LeadForms"
+    ],
+    "summary": "Retrieve an invitation for a LeadForm for a given Lead",
+    "parameters": [
+      {
+        "name": "leadId",
+        "in": "path",
+        "description": "Lead ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadFormInvitationApiApiHypermedia"
+    },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
   {
     "method": "POST",
-    "path": "/api/externalcalls/end",
-    "operationId": "external_calls_end",
+    "path": "/api/leads/{leadId}/forms",
+    "operationId": "LeadForms_CreateLeadFormInvitation",
     "tags": [
-      "ExternalCalls"
+      "LeadForms"
     ],
-    "summary": "Ends an external phone call",
+    "summary": "Create an invitation for a LeadForm for a given Lead",
+    "parameters": [
+      {
+        "name": "leadId",
+        "in": "path",
+        "description": "Lead ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "contactMethod",
+        "in": "query",
+        "description": "contact method to send the invitation; if not specified, uses Email",
+        "schema": {
+          "$ref": "#/components/schemas/ContactMethods"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
-      "$ref": "#/components/schemas/CallEventResponse"
+      "$ref": "#/components/schemas/LeadFormInvitationApiApiHypermedia"
     },
-    "requestSchema": {
-      "$ref": "#/components/schemas/EndExternalCallRequest"
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 201
+  },
+  {
+    "method": "GET",
+    "path": "/api/leads/forms",
+    "operationId": "LeadForms_GetAll",
+    "tags": [
+      "LeadForms"
+    ],
+    "summary": "Get a list of all LeadForms set up for this host. Does not include fields; use `GetById` to see the fields on a form.",
+    "parameters": [],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "type": "array",
+      "items": {
+        "$ref": "#/components/schemas/LeadFormApiApiHypermedia"
+      }
     },
+    "responseContentType": "application/json",
+    "requestSchema": null,
     "status": 200
   },
   {
     "method": "POST",
-    "path": "/api/externalcalls/start",
-    "operationId": "external_calls_start",
+    "path": "/api/leads/forms",
+    "operationId": "LeadForms_Create",
     "tags": [
-      "ExternalCalls"
+      "LeadForms"
     ],
-    "summary": "Starts an external phone call",
+    "summary": "Create a new LeadForm on the host for a given CaseType.",
+    "parameters": [],
+    "requestBodyRequired": true,
     "responseSchema": {
-      "$ref": "#/components/schemas/CallEventResponse"
+      "$ref": "#/components/schemas/LeadFormApiApiHypermedia"
     },
+    "responseContentType": "application/json",
     "requestSchema": {
-      "$ref": "#/components/schemas/StartExternalCallRequest"
+      "$ref": "#/components/schemas/LeadFormCreateApi"
     },
+    "status": 201
+  },
+  {
+    "method": "GET",
+    "path": "/api/leads/forms/{id}",
+    "operationId": "LeadForms_GetById",
+    "tags": [
+      "LeadForms"
+    ],
+    "summary": "Get detailed info about the given LeadForm",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "ID of the LeadForm",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadFormApiApiHypermedia"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/leads/forms/{id}",
+    "operationId": "LeadForms_Update",
+    "tags": [
+      "LeadForms"
+    ],
+    "summary": "Update properties of an existing LeadForm",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "ID of the LeadForm",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadFormApiApiHypermedia"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": {
+      "$ref": "#/components/schemas/LeadFormUpdateApi"
+    },
+    "status": 200
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/leads/forms/{id}",
+    "operationId": "LeadForms_Delete",
+    "tags": [
+      "LeadForms"
+    ],
+    "summary": "Delete a LeadForm from the system.",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "ID of the LeadForm to delete",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/leads/forms/{id}/field",
+    "operationId": "LeadForms_AddField",
+    "tags": [
+      "LeadForms"
+    ],
+    "summary": "Add a new field to an existing LeadForm.",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "ID of the LeadForm to add the field to",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadFormFieldApiApiHypermedia"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": {
+      "$ref": "#/components/schemas/LeadFormFieldAddApi"
+    },
+    "status": 200
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/leads/forms/{id}/field/{fieldId}",
+    "operationId": "LeadForms_UpdateField",
+    "tags": [
+      "LeadForms"
+    ],
+    "summary": "Update properties of an existing LeadFormField",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "ID of the LeadForm",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "fieldId",
+        "in": "path",
+        "description": "ID of the LeadFormField to update",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
+    "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": {
+      "$ref": "#/components/schemas/LeadFormFieldUpdateApi"
+    },
+    "status": 200
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/leads/forms/{id}/field/{fieldId}",
+    "operationId": "LeadForms_DeleteField",
+    "tags": [
+      "LeadForms"
+    ],
+    "summary": "Delete a LeadFormField from a LeadForm",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "ID of the LeadForm",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "fieldId",
+        "in": "path",
+        "description": "ID of the LeadFormField to delete",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/leads/forms/{id}/fields",
+    "operationId": "LeadForms_DeleteFields",
+    "tags": [
+      "LeadForms"
+    ],
+    "summary": "Delete all LeadFormFields from a LeadForm by FieldType",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "ID of the LeadForm",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "fieldType",
+        "in": "query",
+        "description": "FieldType of the fields to delete (`Lead` and `Contact` are custom fields)",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/FieldType"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "int32"
+      }
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
     "status": 200
   },
   {
@@ -338,7 +1114,10 @@ export const mockRouteDefinitions = [
       "LeadRoles"
     ],
     "summary": "Returns a list of all lead roles",
+    "parameters": [],
+    "requestBodyRequired": false,
     "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": null,
     "status": 200
   },
@@ -350,7 +1129,21 @@ export const mockRouteDefinitions = [
       "LeadRoles"
     ],
     "summary": "Delete a Lead Role",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "ID of the Lead Role to delete",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": null,
     "status": 200
   },
@@ -362,9 +1155,58 @@ export const mockRouteDefinitions = [
       "Leads"
     ],
     "summary": "Returns  all leads based on the provided lead status. This request is paged.",
+    "parameters": [
+      {
+        "name": "status",
+        "in": "query",
+        "description": "The status ID for the Leads to get.",
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "subStatusIds",
+        "in": "query",
+        "description": "Optional comma separated list of sub statuses to get.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "page",
+        "in": "query",
+        "description": "Page of the record set. Defaults to 1 if not specified.",
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 1
+        }
+      },
+      {
+        "name": "itemsPerPage",
+        "in": "query",
+        "description": "Number of items per paged request. Maximum is 500, defaults to 500 if not specified.",
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 500
+        }
+      },
+      {
+        "name": "sortOrder",
+        "in": "query",
+        "description": "Order by Last Status Change Date ascending or descending",
+        "schema": {
+          "$ref": "#/components/schemas/SortOrder"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/LeadApiFlatApiPagedResponse"
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -376,9 +1218,23 @@ export const mockRouteDefinitions = [
       "Leads"
     ],
     "summary": "Returns a single lead with full information.\r\n - This endpoint will have strict throttling of 25 requests per minute by 11/1/2025.\r\n - Consider using either the `basic` or `detailed` endpoints for higher throughput",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Lead Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/LeadApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -390,65 +1246,446 @@ export const mockRouteDefinitions = [
       "Leads"
     ],
     "summary": "Update properties of an existing LeadDocket.Core.Models.Lead.",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "ID of the LeadDocket.Core.Models.Lead",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
     "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": {
       "$ref": "#/components/schemas/LeadUpdateApi"
     },
     "status": 200
   },
   {
-    "method": "PATCH",
-    "path": "/api/leads/{id}/appointments/schedule",
-    "operationId": "patch /api/leads/{id}/appointments/schedule",
+    "method": "GET",
+    "path": "/api/leads/basic/{id}",
+    "operationId": "leads_getBasicById",
     "tags": [
       "Leads"
     ],
-    "summary": "Creates an appointment for the specified lead.",
+    "summary": "Returns a single lead basic information by Id without notes, messages, and other lists",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Lead Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadApi"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/leads/detailed/{id}",
+    "operationId": "leads_getDetailedById",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Returns a single lead by Id with parameters to request additional lead details.",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Lead Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "flags",
+        "in": "query",
+        "description": "Bitwise flags indicating which related entities to include.\r\nPlease opt into the specific details you require.\r\nPossible values (combine using bitwise OR):\r\n            \r\n| Flag                                      | Description\r\n|-------------------------------------------|-------------------------------------------------------------\r\n| Sources                                   | Include lead source information.\r\n| SeverityLevel                             | Include severity level information.\r\n| PhoneCalls                                | Include phone call information.\r\n| Office                                    | Include office information.\r\n| Opportunity                               | Include opportunity information.\r\n| Creator                                   | Include lead creator information.\r\n| ReferredTo                                | Include referred to contact information.\r\n| ReferredBy                                | Include referred by contact information.\r\n| LeadStatusHistory                         | Include lead status history.\r\n| RelatedContacts                           | Include related contacts.\r\n| ContactCustomFields                       | Include contact custom fields.\r\n| LeadCustomFields                          | Include lead custom fields.\r\n| LeadNotes                                 | Include lead notes.\r\n| Tasks                                     | Include tasks.\r\n| Messages                                  | Include messages.\r\n| LeadFiles                                 | Include lead files.\r\n| EsignDocuments                            | Include esign documents.\r\n| Settlements                               | Include settlements.\r\n| CollectionSectionEntries                  | Include collection section entries.",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/LeadRelatedEntityTypeAPI"
+          }
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadApi"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/leads/getbycode",
+    "operationId": "leads_getByCode",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Returns a single lead by Case Tracker Code",
+    "parameters": [
+      {
+        "name": "code",
+        "in": "query",
+        "description": "Case Tracker Code",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadApi"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/leads/getbyopportunityid",
+    "operationId": "leads_getByOpportunityId",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Returns a single lead by Opportunity Id",
+    "parameters": [
+      {
+        "name": "opportunityId",
+        "in": "query",
+        "description": "Opportunity Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadApi"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/leads/pendingexportids",
+    "operationId": "leads_getPendingExport",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Returns a list of Lead Ids eligible to export to Case Management System",
+    "parameters": [],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "int32"
+      }
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/leads/laststatuschangesince",
+    "operationId": "leads_getByLastStatusChangeSince",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Gets all leads based on last status change date",
+    "parameters": [
+      {
+        "name": "date",
+        "in": "query",
+        "description": "Leads with a status change since this date",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "page",
+        "in": "query",
+        "description": "Page of the record set. Defaults to 1 if not specified.",
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 1
+        }
+      },
+      {
+        "name": "itemsPerPage",
+        "in": "query",
+        "description": "Number of items per paged request. Maximum is 500, defaults to 500 if not specified.",
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 500
+        }
+      },
+      {
+        "name": "sortOrder",
+        "in": "query",
+        "description": "Order by Last Status Change Date ascending or descending",
+        "schema": {
+          "$ref": "#/components/schemas/SortOrder"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadApiFlatApiPagedResponse"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/leads/lastupdatedsince",
+    "operationId": "leads_getByLastUpdatedSince",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Gets all leads based on last updated date. This covers status change and edit events.",
+    "parameters": [
+      {
+        "name": "date",
+        "in": "query",
+        "description": "Leads updated since this date",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "page",
+        "in": "query",
+        "description": "Page of the record set. Defaults to 1 if not specified.",
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 1
+        }
+      },
+      {
+        "name": "itemsPerPage",
+        "in": "query",
+        "description": "Number of items per paged request. Maximum is 500, defaults to 500 if not specified.",
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 500
+        }
+      },
+      {
+        "name": "sortOrder",
+        "in": "query",
+        "description": "Order by Last Updated ascending or descending",
+        "schema": {
+          "$ref": "#/components/schemas/SortOrder"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadApiFlatApiPagedResponse"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "PUT",
+    "path": "/api/leads/updatecode",
+    "operationId": "leads_putUpdateCode",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Update Case Tracker Code on a Lead",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "query",
+        "description": "Lead Docket Lead ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "externalId",
+        "in": "query",
+        "description": "Case Tracker Code from external system",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "PUT",
+    "path": "/api/leads/updatecustomfield",
+    "operationId": "leads_putUpdateCustomField",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Updates a single custom field on a lead",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "query",
+        "description": "Custom Field Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "leadId",
+        "in": "query",
+        "description": "Lead Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "value",
+        "in": "query",
+        "description": "Custom Field Value",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/leads/getcustomfield",
+    "operationId": "leads_getCustomField",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Get the value of single custom field on a lead",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "query",
+        "description": "Custom Field Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "leadId",
+        "in": "query",
+        "description": "Lead Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/leads/updatecustomfields",
+    "operationId": "leads_putUpdateCustomFields",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Updates custom fields on a lead",
+    "parameters": [],
+    "requestBodyRequired": true,
+    "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": {
-      "$ref": "#/components/schemas/ScheduleAppointmentApi"
+      "$ref": "#/components/schemas/CustomFieldsUpdateApi"
     },
     "status": 200
   },
   {
-    "method": "POST",
-    "path": "/api/leads/{id}/files/{fileId}/associatefilewithfield/{fieldId}",
-    "operationId": "post /api/leads/{id}/files/{fileId}/associatefilewithfield/{fieldId}",
+    "method": "PUT",
+    "path": "/api/leads/markasprocessed",
+    "operationId": "leads_putMarkAsProcessed",
     "tags": [
       "Leads"
     ],
-    "summary": "Associate an uploaded file with a custom field",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadFileUploadApi"
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "POST",
-    "path": "/api/leads/{id}/files/{fileId}finalizeupload",
-    "operationId": "post /api/leads/{id}/files/{fileId}finalizeupload",
-    "tags": [
-      "Leads"
+    "summary": "Marks a lead as having been sent to the external case management system",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "query",
+        "description": "Lead Docket Lead ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "markprocessed",
+        "in": "query",
+        "description": "True/False of if it should be marked processed",
+        "schema": {
+          "type": "boolean",
+          "default": true
+        }
+      }
     ],
-    "summary": "Completes large file upload after using getuploadurl",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadFileUploadApi"
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "POST",
-    "path": "/api/leads/{id}/files/getuploadurl",
-    "operationId": "post /api/leads/{id}/files/getuploadurl",
-    "tags": [
-      "Leads"
-    ],
-    "summary": "Create a URL for a large file upload.Requires a call to finalizeupload after upload. Max file size allowed is 500MB.",
-    "responseSchema": {
-      "$ref": "#/components/schemas/BlobUrlResponseModel"
-    },
+    "requestBodyRequired": false,
+    "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": null,
     "status": 200
   },
@@ -460,9 +1697,198 @@ export const mockRouteDefinitions = [
       "Leads"
     ],
     "summary": "Uploads a file to a lead. Max file size allowed is 30MB",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Lead Docket Lead ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "uploadedBy",
+        "in": "query",
+        "description": "Name of uploader",
+        "schema": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      {
+        "name": "allowDuplicateFilesOnLead",
+        "in": "query",
+        "description": "Allow creation of duplicate files",
+        "schema": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/LeadFileUploadApi"
     },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/leads/{id}/files/getuploadurl",
+    "operationId": "post /api/leads/{id}/files/getuploadurl",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Create a URL for a large file upload.Requires a call to finalizeupload after upload. Max file size allowed is 500MB.",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Lead Docket Lead ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "fileName",
+        "in": "query",
+        "description": "filename with extension",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "uploadedBy",
+        "in": "query",
+        "description": "Name of uploader",
+        "schema": {
+          "type": "string",
+          "default": ""
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/BlobUrlResponseModel"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/leads/{id}/files/{fileId}finalizeupload",
+    "operationId": "post /api/leads/{id}/files/{fileId}finalizeupload",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Completes large file upload after using getuploadurl",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Lead Docket Lead ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "fileId",
+        "in": "path",
+        "description": "File ID returned from getuploadurl",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadFileUploadApi"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/leads/{id}/files/{fileId}/associatefilewithfield/{fieldId}",
+    "operationId": "post /api/leads/{id}/files/{fileId}/associatefilewithfield/{fieldId}",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Associate an uploaded file with a custom field",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Lead Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "fileId",
+        "in": "path",
+        "description": "Uploaded File Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "fieldId",
+        "in": "path",
+        "description": "Custom Field Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/LeadFileUploadApi"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/leads/files/download/{id}",
+    "operationId": "DownloadFile",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Downloads a lead file by Id",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "File ID",
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": null,
     "status": 200
   },
@@ -474,25 +1900,27 @@ export const mockRouteDefinitions = [
       "Leads"
     ],
     "summary": "Adds a new note for the specified lead.",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "The id of the lead for which note is being added.",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
     "responseSchema": {
       "$ref": "#/components/schemas/LeadNoteApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": {
       "$ref": "#/components/schemas/LeadNoteAddApi"
     },
     "status": 201
-  },
-  {
-    "method": "DELETE",
-    "path": "/api/leads/{id}/notes/{noteId}",
-    "operationId": "delete /api/leads/{id}/notes/{noteId}",
-    "tags": [
-      "Leads"
-    ],
-    "summary": "Deletes a lead note.",
-    "responseSchema": null,
-    "requestSchema": null,
-    "status": 204
   },
   {
     "method": "PUT",
@@ -502,11 +1930,99 @@ export const mockRouteDefinitions = [
       "Leads"
     ],
     "summary": "Updates an existing lead note.",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "The id of the lead.",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "noteId",
+        "in": "path",
+        "description": "The id of the note to update.",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
     "responseSchema": {
       "$ref": "#/components/schemas/LeadNoteApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": {
       "$ref": "#/components/schemas/LeadNoteUpdateApi"
+    },
+    "status": 200
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/leads/{id}/notes/{noteId}",
+    "operationId": "delete /api/leads/{id}/notes/{noteId}",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Deletes a lead note.",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "The id of the lead.",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "noteId",
+        "in": "path",
+        "description": "The id of the note to delete.",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": null,
+    "status": 204
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/leads/{id}/appointments/schedule",
+    "operationId": "patch /api/leads/{id}/appointments/schedule",
+    "tags": [
+      "Leads"
+    ],
+    "summary": "Creates an appointment for the specified lead.",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "The id of the lead for which appointment is to be scheduled.",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
+    "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": {
+      "$ref": "#/components/schemas/ScheduleAppointmentApi"
     },
     "status": 200
   },
@@ -518,7 +2034,21 @@ export const mockRouteDefinitions = [
       "Leads"
     ],
     "summary": "Change the status of the specified lead.",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "The id of the lead for which status is being changed.",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
     "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": {
       "$ref": "#/components/schemas/ChangeLeadStatusApi"
     },
@@ -532,99 +2062,41 @@ export const mockRouteDefinitions = [
       "Leads"
     ],
     "summary": "Moves the leads to the next sub status if one is available. Accepts current Lead Status and Substatus to prevent unexpected status changes",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "The id of the lead to move.",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "currentStatusId",
+        "in": "query",
+        "description": "Current Status ID",
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "currentSubstatusId",
+        "in": "query",
+        "description": "Current Substatus ID",
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": null,
     "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/leads/{leadId}/collectionsections",
-    "operationId": "CollectionSections_List",
-    "tags": [
-      "CollectionSections"
-    ],
-    "summary": "Retrieve all Collection Sections and section entries for a Lead",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadCollectionSectionApi"
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "DELETE",
-    "path": "/api/leads/{leadId}/collectionsections/{sectionId}",
-    "operationId": "CollectionSections_Delete",
-    "tags": [
-      "CollectionSections"
-    ],
-    "summary": "Delete existing entries in a Collection Section for a Lead",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadCollectionSectionApi"
-    },
-    "requestSchema": {
-      "$ref": "#/components/schemas/CollectionSectionDeleteApi"
-    },
-    "status": 200
-  },
-  {
-    "method": "PATCH",
-    "path": "/api/leads/{leadId}/collectionsections/{sectionId}",
-    "operationId": "CollectionSections_Update",
-    "tags": [
-      "CollectionSections"
-    ],
-    "summary": "Update existing entries in a Collection Section for a Lead",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadCollectionSectionApi"
-    },
-    "requestSchema": {
-      "$ref": "#/components/schemas/CollectionSectionUpdateApi"
-    },
-    "status": 200
-  },
-  {
-    "method": "POST",
-    "path": "/api/leads/{leadId}/collectionsections/{sectionId}",
-    "operationId": "CollectionSections_Add",
-    "tags": [
-      "CollectionSections"
-    ],
-    "summary": "Insert a new entry into a Collection Section for a Lead",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadCollectionSectionApi"
-    },
-    "requestSchema": {
-      "$ref": "#/components/schemas/CollectionSectionUpdateApi"
-    },
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/leads/{leadId}/forms",
-    "operationId": "LeadForms_GetLeadFormInvitation",
-    "tags": [
-      "LeadForms"
-    ],
-    "summary": "Retrieve an invitation for a LeadForm for a given Lead",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadFormInvitationApiApiHypermedia"
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "POST",
-    "path": "/api/leads/{leadId}/forms",
-    "operationId": "LeadForms_CreateLeadFormInvitation",
-    "tags": [
-      "LeadForms"
-    ],
-    "summary": "Create an invitation for a LeadForm for a given Lead",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadFormInvitationApiApiHypermedia"
-    },
-    "requestSchema": null,
-    "status": 201
   },
   {
     "method": "POST",
@@ -634,319 +2106,50 @@ export const mockRouteDefinitions = [
       "Leads"
     ],
     "summary": "Add related contact to a lead",
-    "responseSchema": null,
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/leads/basic/{id}",
-    "operationId": "leads_getBasicById",
-    "tags": [
-      "Leads"
-    ],
-    "summary": "Returns a single lead basic information by Id without notes, messages, and other lists",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadApi"
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/leads/detailed/{id}",
-    "operationId": "leads_getDetailedById",
-    "tags": [
-      "Leads"
-    ],
-    "summary": "Returns a single lead by Id with parameters to request additional lead details.",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadApi"
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/leads/files/download/{id}",
-    "operationId": "DownloadFile",
-    "tags": [
-      "Leads"
-    ],
-    "summary": "Downloads a lead file by Id",
-    "responseSchema": null,
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/leads/forms",
-    "operationId": "LeadForms_GetAll",
-    "tags": [
-      "LeadForms"
-    ],
-    "summary": "Get a list of all LeadForms set up for this host. Does not include fields; use `GetById` to see the fields on a form.",
-    "responseSchema": {
-      "type": "array",
-      "items": {
-        "$ref": "#/components/schemas/LeadFormApiApiHypermedia"
+    "parameters": [
+      {
+        "name": "leadid",
+        "in": "query",
+        "description": "Lead Docket Lead ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "contactid",
+        "in": "query",
+        "description": "Lead Docket Contact ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "relationship",
+        "in": "query",
+        "description": "Relationship to the lead",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "additionalplaintiff",
+        "in": "query",
+        "description": "Is this an additional plaintiff",
+        "schema": {
+          "type": "boolean",
+          "default": false
+        }
       }
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "POST",
-    "path": "/api/leads/forms",
-    "operationId": "LeadForms_Create",
-    "tags": [
-      "LeadForms"
     ],
-    "summary": "Create a new LeadForm on the host for a given CaseType.",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadFormApiApiHypermedia"
-    },
-    "requestSchema": {
-      "$ref": "#/components/schemas/LeadFormCreateApi"
-    },
-    "status": 201
-  },
-  {
-    "method": "DELETE",
-    "path": "/api/leads/forms/{id}",
-    "operationId": "LeadForms_Delete",
-    "tags": [
-      "LeadForms"
-    ],
-    "summary": "Delete a LeadForm from the system.",
+    "requestBodyRequired": false,
     "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/leads/forms/{id}",
-    "operationId": "LeadForms_GetById",
-    "tags": [
-      "LeadForms"
-    ],
-    "summary": "Get detailed info about the given LeadForm",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadFormApiApiHypermedia"
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "PATCH",
-    "path": "/api/leads/forms/{id}",
-    "operationId": "LeadForms_Update",
-    "tags": [
-      "LeadForms"
-    ],
-    "summary": "Update properties of an existing LeadForm",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadFormApiApiHypermedia"
-    },
-    "requestSchema": {
-      "$ref": "#/components/schemas/LeadFormUpdateApi"
-    },
-    "status": 200
-  },
-  {
-    "method": "POST",
-    "path": "/api/leads/forms/{id}/field",
-    "operationId": "LeadForms_AddField",
-    "tags": [
-      "LeadForms"
-    ],
-    "summary": "Add a new field to an existing LeadForm.",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadFormFieldApiApiHypermedia"
-    },
-    "requestSchema": {
-      "$ref": "#/components/schemas/LeadFormFieldAddApi"
-    },
-    "status": 200
-  },
-  {
-    "method": "DELETE",
-    "path": "/api/leads/forms/{id}/field/{fieldId}",
-    "operationId": "LeadForms_DeleteField",
-    "tags": [
-      "LeadForms"
-    ],
-    "summary": "Delete a LeadFormField from a LeadForm",
-    "responseSchema": null,
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "PATCH",
-    "path": "/api/leads/forms/{id}/field/{fieldId}",
-    "operationId": "LeadForms_UpdateField",
-    "tags": [
-      "LeadForms"
-    ],
-    "summary": "Update properties of an existing LeadFormField",
-    "responseSchema": null,
-    "requestSchema": {
-      "$ref": "#/components/schemas/LeadFormFieldUpdateApi"
-    },
-    "status": 200
-  },
-  {
-    "method": "DELETE",
-    "path": "/api/leads/forms/{id}/fields",
-    "operationId": "LeadForms_DeleteFields",
-    "tags": [
-      "LeadForms"
-    ],
-    "summary": "Delete all LeadFormFields from a LeadForm by FieldType",
-    "responseSchema": {
-      "type": "array",
-      "items": {
-        "type": "integer",
-        "format": "int32"
-      }
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/leads/getbycode",
-    "operationId": "leads_getByCode",
-    "tags": [
-      "Leads"
-    ],
-    "summary": "Returns a single lead by Case Tracker Code",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadApi"
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/leads/getbyopportunityid",
-    "operationId": "leads_getByOpportunityId",
-    "tags": [
-      "Leads"
-    ],
-    "summary": "Returns a single lead by Opportunity Id",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadApi"
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/leads/getcustomfield",
-    "operationId": "leads_getCustomField",
-    "tags": [
-      "Leads"
-    ],
-    "summary": "Get the value of single custom field on a lead",
-    "responseSchema": null,
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/leads/laststatuschangesince",
-    "operationId": "leads_getByLastStatusChangeSince",
-    "tags": [
-      "Leads"
-    ],
-    "summary": "Gets all leads based on last status change date",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadApiFlatApiPagedResponse"
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/leads/lastupdatedsince",
-    "operationId": "leads_getByLastUpdatedSince",
-    "tags": [
-      "Leads"
-    ],
-    "summary": "Gets all leads based on last updated date. This covers status change and edit events.",
-    "responseSchema": {
-      "$ref": "#/components/schemas/LeadApiFlatApiPagedResponse"
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "PUT",
-    "path": "/api/leads/markasprocessed",
-    "operationId": "leads_putMarkAsProcessed",
-    "tags": [
-      "Leads"
-    ],
-    "summary": "Marks a lead as having been sent to the external case management system",
-    "responseSchema": null,
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/leads/pendingexportids",
-    "operationId": "leads_getPendingExport",
-    "tags": [
-      "Leads"
-    ],
-    "summary": "Returns a list of Lead Ids eligible to export to Case Management System",
-    "responseSchema": {
-      "type": "array",
-      "items": {
-        "type": "integer",
-        "format": "int32"
-      }
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "PUT",
-    "path": "/api/leads/updatecode",
-    "operationId": "leads_putUpdateCode",
-    "tags": [
-      "Leads"
-    ],
-    "summary": "Update Case Tracker Code on a Lead",
-    "responseSchema": null,
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "PUT",
-    "path": "/api/leads/updatecustomfield",
-    "operationId": "leads_putUpdateCustomField",
-    "tags": [
-      "Leads"
-    ],
-    "summary": "Updates a single custom field on a lead",
-    "responseSchema": null,
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "PATCH",
-    "path": "/api/leads/updatecustomfields",
-    "operationId": "leads_putUpdateCustomFields",
-    "tags": [
-      "Leads"
-    ],
-    "summary": "Updates custom fields on a lead",
-    "responseSchema": null,
-    "requestSchema": {
-      "$ref": "#/components/schemas/CustomFieldsUpdateApi"
-    },
     "status": 200
   },
   {
@@ -957,7 +2160,41 @@ export const mockRouteDefinitions = [
       "Leads"
     ],
     "summary": "Update a lead role user on a single lead",
+    "parameters": [
+      {
+        "name": "leadid",
+        "in": "query",
+        "description": "",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "leadRoleId",
+        "in": "query",
+        "description": "",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "assignToUserId",
+        "in": "query",
+        "description": "",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": null,
     "status": 200
   },
@@ -969,19 +2206,10 @@ export const mockRouteDefinitions = [
       "LeadSources"
     ],
     "summary": "Returns a list of all lead sources",
+    "parameters": [],
+    "requestBodyRequired": false,
     "responseSchema": null,
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/lookups",
-    "operationId": "get /api/lookups",
-    "tags": [
-      "Lookups"
-    ],
-    "summary": "Returns a list of items by lookup type",
-    "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": null,
     "status": 200
   },
@@ -993,7 +2221,35 @@ export const mockRouteDefinitions = [
       "Lookups"
     ],
     "summary": "Returns a list of possible lookup types to be used in /api/lookups",
+    "parameters": [],
+    "requestBodyRequired": false,
     "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/lookups",
+    "operationId": "get /api/lookups",
+    "tags": [
+      "Lookups"
+    ],
+    "summary": "Returns a list of items by lookup type",
+    "parameters": [
+      {
+        "name": "type",
+        "in": "query",
+        "description": "The type of lookup data to retrieve",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/LookupTypes"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": null,
     "status": 200
   },
@@ -1005,27 +2261,14 @@ export const mockRouteDefinitions = [
       "Messages"
     ],
     "summary": "Create a new message/email related to a specific lead.",
+    "parameters": [],
+    "requestBodyRequired": true,
     "responseSchema": {
       "$ref": "#/components/schemas/MessageApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": {
       "$ref": "#/components/schemas/MessageAddApi"
-    },
-    "status": 201
-  },
-  {
-    "method": "POST",
-    "path": "/api/messages/sendemail",
-    "operationId": "post /api/messages/sendemail",
-    "tags": [
-      "Messages"
-    ],
-    "summary": "Send an email message to a lead.",
-    "responseSchema": {
-      "$ref": "#/components/schemas/MessageApi"
-    },
-    "requestSchema": {
-      "$ref": "#/components/schemas/SendEmailMessageApi"
     },
     "status": 201
   },
@@ -1037,11 +2280,33 @@ export const mockRouteDefinitions = [
       "Messages"
     ],
     "summary": "Send a text message to a lead. (SMS messages sent beyond plan limits will incur an overage charge.)",
+    "parameters": [],
+    "requestBodyRequired": true,
     "responseSchema": {
       "$ref": "#/components/schemas/MessageApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": {
       "$ref": "#/components/schemas/SendTextMessageApi"
+    },
+    "status": 201
+  },
+  {
+    "method": "POST",
+    "path": "/api/messages/sendemail",
+    "operationId": "post /api/messages/sendemail",
+    "tags": [
+      "Messages"
+    ],
+    "summary": "Send an email message to a lead.",
+    "parameters": [],
+    "requestBodyRequired": true,
+    "responseSchema": {
+      "$ref": "#/components/schemas/MessageApi"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": {
+      "$ref": "#/components/schemas/SendEmailMessageApi"
     },
     "status": 201
   },
@@ -1053,33 +2318,23 @@ export const mockRouteDefinitions = [
       "Opportunities"
     ],
     "summary": "Returns an opportunity by Id",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Opportunity Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/OpportunityApi"
     },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "PATCH",
-    "path": "/api/opportunities/appendnote",
-    "operationId": "opportunities_AppendNote",
-    "tags": [
-      "Opportunities"
-    ],
-    "summary": "Adds information to the notes field on an unprocessed Opportunity",
-    "responseSchema": null,
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "PATCH",
-    "path": "/api/opportunities/clearnote",
-    "operationId": "opportunities_ClearNote",
-    "tags": [
-      "Opportunities"
-    ],
-    "summary": "Clears the note field for an opportunity",
-    "responseSchema": null,
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -1091,40 +2346,42 @@ export const mockRouteDefinitions = [
       "Opportunities"
     ],
     "summary": "Gets all opportunities created since a specific date.",
+    "parameters": [
+      {
+        "name": "date",
+        "in": "query",
+        "description": "Opportunities created since this date.",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "page",
+        "in": "query",
+        "description": "Page of the record set. Defaults to 1 if not specified.",
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 1
+        }
+      },
+      {
+        "name": "itemsPerPage",
+        "in": "query",
+        "description": "Number of items per paged request. Maximum is 500, defaults to 500 if not specified.",
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 500
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/OpportunityApiFlatApiPagedResponse"
     },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "PATCH",
-    "path": "/api/opportunities/disregard",
-    "operationId": "opportunities_Disregard",
-    "tags": [
-      "Opportunities"
-    ],
-    "summary": "Marks an opportunity as disregarded. Optionally accepts a reason string",
-    "responseSchema": {
-      "$ref": "#/components/schemas/OpportunityApi"
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/opportunities/getlistunprocessed",
-    "operationId": "opportunities_getListUnprocessed",
-    "tags": [
-      "Opportunities"
-    ],
-    "summary": "Gets all opportunities that haven't been processed",
-    "responseSchema": {
-      "type": "array",
-      "items": {
-        "$ref": "#/components/schemas/OpportunityApiFlat"
-      }
-    },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -1136,9 +2393,160 @@ export const mockRouteDefinitions = [
       "Opportunities"
     ],
     "summary": "Gets all opportunities last updated since a specific date. This request is paged.",
+    "parameters": [
+      {
+        "name": "date",
+        "in": "query",
+        "description": "Opportunities last updated since this date.",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "page",
+        "in": "query",
+        "description": "Page of the record set. Defaults to 1 if not specified.",
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 1
+        }
+      },
+      {
+        "name": "itemsPerPage",
+        "in": "query",
+        "description": "Number of items per paged request. Maximum is 500, defaults to 500 if not specified.",
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 500
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/OpportunityApiFlatApiPagedResponse"
     },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/opportunities/getlistunprocessed",
+    "operationId": "opportunities_getListUnprocessed",
+    "tags": [
+      "Opportunities"
+    ],
+    "summary": "Gets all opportunities that haven't been processed",
+    "parameters": [],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "type": "array",
+      "items": {
+        "$ref": "#/components/schemas/OpportunityApiFlat"
+      }
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/opportunities/appendnote",
+    "operationId": "opportunities_AppendNote",
+    "tags": [
+      "Opportunities"
+    ],
+    "summary": "Adds information to the notes field on an unprocessed Opportunity",
+    "parameters": [
+      {
+        "name": "opportunityId",
+        "in": "query",
+        "description": "Opportunity Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "note",
+        "in": "query",
+        "description": "Note text to add",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/opportunities/clearnote",
+    "operationId": "opportunities_ClearNote",
+    "tags": [
+      "Opportunities"
+    ],
+    "summary": "Clears the note field for an opportunity",
+    "parameters": [
+      {
+        "name": "opportunityId",
+        "in": "query",
+        "description": "Opportunity Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/opportunities/disregard",
+    "operationId": "opportunities_Disregard",
+    "tags": [
+      "Opportunities"
+    ],
+    "summary": "Marks an opportunity as disregarded. Optionally accepts a reason string",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "query",
+        "description": "Opportunity Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "reason",
+        "in": "query",
+        "description": "Disregard Reason",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/OpportunityApi"
+    },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -1150,9 +2558,23 @@ export const mockRouteDefinitions = [
       "Opportunities"
     ],
     "summary": "Lock an opportunity for 30 minutes. This prevents interactive users from opening this opportunity",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "query",
+        "description": "Opportunity Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/OpportunityApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -1164,23 +2586,79 @@ export const mockRouteDefinitions = [
       "Opportunities"
     ],
     "summary": "Unlock a locked opportunity. This allows interactive users to open this opportunity",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "query",
+        "description": "Opportunity Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/OpportunityApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
   {
-    "method": "POST",
-    "path": "/api/referrals",
-    "operationId": "referrals_Add",
+    "method": "GET",
+    "path": "/api/referrals/{id}",
+    "operationId": "referrals_GetById",
     "tags": [
       "Referrals"
     ],
-    "summary": "Adds a new referral source",
+    "summary": "Returns referral details by referral source Id",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Referral Source Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
-      "$ref": "#/components/schemas/ReferralSourceAddApi"
+      "$ref": "#/components/schemas/ReferralSourceApi"
     },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "PUT",
+    "path": "/api/referrals/{id}",
+    "operationId": "referrals_Edit",
+    "tags": [
+      "Referrals"
+    ],
+    "summary": "Edits an existing referral source",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Lead Docket Referral ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
+    "responseSchema": {
+      "$ref": "#/components/schemas/ReferralSourceApi"
+    },
+    "responseContentType": "application/json",
     "requestSchema": {
       "$ref": "#/components/schemas/ReferralSourceAddApi"
     },
@@ -1194,38 +2672,22 @@ export const mockRouteDefinitions = [
       "Referrals"
     ],
     "summary": "Deletes a referral source",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Lead Docket Referral ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/referrals/{id}",
-    "operationId": "referrals_GetById",
-    "tags": [
-      "Referrals"
-    ],
-    "summary": "Returns referral details by referral source Id",
-    "responseSchema": {
-      "$ref": "#/components/schemas/ReferralSourceApi"
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "PUT",
-    "path": "/api/referrals/{id}",
-    "operationId": "referrals_Edit",
-    "tags": [
-      "Referrals"
-    ],
-    "summary": "Edits an existing referral source",
-    "responseSchema": {
-      "$ref": "#/components/schemas/ReferralSourceApi"
-    },
-    "requestSchema": {
-      "$ref": "#/components/schemas/ReferralSourceAddApi"
-    },
     "status": 200
   },
   {
@@ -1236,9 +2698,22 @@ export const mockRouteDefinitions = [
       "Referrals"
     ],
     "summary": "Returns referral details by external code. If more than one matches, returns the first",
+    "parameters": [
+      {
+        "name": "externalCode",
+        "in": "query",
+        "description": "ExternalCode",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/ReferralSourceApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -1250,46 +2725,15 @@ export const mockRouteDefinitions = [
       "Referrals"
     ],
     "summary": "Returns a list of referral sources",
+    "parameters": [],
+    "requestBodyRequired": false,
     "responseSchema": {
       "type": "array",
       "items": {
         "$ref": "#/components/schemas/ReferralSourceApi"
       }
     },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/referrals/listgroups",
-    "operationId": "referralGroups_GetList",
-    "tags": [
-      "Referrals"
-    ],
-    "summary": "Returns a list of referral groups",
-    "responseSchema": {
-      "type": "array",
-      "items": {
-        "$ref": "#/components/schemas/ReferralGroupApi"
-      }
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/referrals/listpracticeareas",
-    "operationId": "referrals_PracticeAreas",
-    "tags": [
-      "Referrals"
-    ],
-    "summary": "Unique practice areas list used on referral sources",
-    "responseSchema": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -1301,7 +2745,30 @@ export const mockRouteDefinitions = [
       "Referrals"
     ],
     "summary": "Update Case Tracker Code on a Referral Source",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "query",
+        "description": "Lead Docket Referral ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "code",
+        "in": "query",
+        "description": "Case Tracker Code from external system",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": null,
     "status": 200
   },
@@ -1313,7 +2780,89 @@ export const mockRouteDefinitions = [
       "Referrals"
     ],
     "summary": "Update External Code on a Referral Source",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "query",
+        "description": "Lead Docket Referral ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "externalCode",
+        "in": "query",
+        "description": "Code from external system",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/referrals/listgroups",
+    "operationId": "referralGroups_GetList",
+    "tags": [
+      "Referrals"
+    ],
+    "summary": "Returns a list of referral groups",
+    "parameters": [],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "type": "array",
+      "items": {
+        "$ref": "#/components/schemas/ReferralGroupApi"
+      }
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/referrals",
+    "operationId": "referrals_Add",
+    "tags": [
+      "Referrals"
+    ],
+    "summary": "Adds a new referral source",
+    "parameters": [],
+    "requestBodyRequired": true,
+    "responseSchema": {
+      "$ref": "#/components/schemas/ReferralSourceAddApi"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": {
+      "$ref": "#/components/schemas/ReferralSourceAddApi"
+    },
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/referrals/listpracticeareas",
+    "operationId": "referrals_PracticeAreas",
+    "tags": [
+      "Referrals"
+    ],
+    "summary": "Unique practice areas list used on referral sources",
+    "parameters": [],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -1325,27 +2874,14 @@ export const mockRouteDefinitions = [
       "Settings"
     ],
     "summary": "",
+    "parameters": [],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/SettingsOptions"
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
-  },
-  {
-    "method": "POST",
-    "path": "/api/settlements",
-    "operationId": "AddSettlement",
-    "tags": [
-      "Settlements"
-    ],
-    "summary": "Adds a new settlement record for the specified lead.",
-    "responseSchema": {
-      "$ref": "#/components/schemas/SettlementApi"
-    },
-    "requestSchema": {
-      "$ref": "#/components/schemas/SettlementAddApi"
-    },
-    "status": 201
   },
   {
     "method": "GET",
@@ -1355,9 +2891,23 @@ export const mockRouteDefinitions = [
       "Settlements"
     ],
     "summary": "Returns settlement details by settlement Id",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Settlement Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/SettlementApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -1369,39 +2919,42 @@ export const mockRouteDefinitions = [
       "Settlements"
     ],
     "summary": "Returns list of settlement details by lead Id",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Lead Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/SettlementApi"
     },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/statuses",
-    "operationId": "Statuses_GetAll",
-    "tags": [
-      "Statuses"
-    ],
-    "summary": "Get a list of all LeadDocket.Core.Models.Statuses",
-    "responseSchema": {
-      "$ref": "#/components/schemas/StatusApiApiHypermediaListApiHypermedia"
-    },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
   {
     "method": "POST",
-    "path": "/api/statuses",
-    "operationId": "Status_Create",
+    "path": "/api/settlements",
+    "operationId": "AddSettlement",
     "tags": [
-      "Statuses"
+      "Settlements"
     ],
-    "summary": "Create a new LeadDocket.Core.Models.Status and zero or more new LeadDocket.Core.Models.Substatuses that are associated with the LeadDocket.Core.Models.Status",
+    "summary": "Adds a new settlement record for the specified lead.",
+    "parameters": [],
+    "requestBodyRequired": true,
     "responseSchema": {
-      "$ref": "#/components/schemas/StatusCreateApiApiHypermedia"
+      "$ref": "#/components/schemas/SettlementApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": {
-      "$ref": "#/components/schemas/StatusCreateApi"
+      "$ref": "#/components/schemas/SettlementAddApi"
     },
     "status": 201
   },
@@ -1413,9 +2966,23 @@ export const mockRouteDefinitions = [
       "Statuses"
     ],
     "summary": "Retrieve a LeadDocket.Core.Models.Status by id",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Status Id",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/StatusApiApiHypermedia"
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -1427,13 +2994,73 @@ export const mockRouteDefinitions = [
       "Statuses"
     ],
     "summary": "Update properties of an existing LeadDocket.Core.Models.Status.  You cannot update LeadDocket.Core.Models.Substatuses on this LeadDocket.Core.Models.Status using this method",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "ID of the LeadDocket.Core.Models.Status",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
     "responseSchema": {
       "$ref": "#/components/schemas/StatusApiApiHypermedia"
     },
+    "responseContentType": "application/json",
     "requestSchema": {
       "$ref": "#/components/schemas/StatusUpdateApi"
     },
     "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/statuses",
+    "operationId": "Statuses_GetAll",
+    "tags": [
+      "Statuses"
+    ],
+    "summary": "Get a list of all LeadDocket.Core.Models.Statuses",
+    "parameters": [],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/StatusApiApiHypermediaListApiHypermedia"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/statuses",
+    "operationId": "Status_Create",
+    "tags": [
+      "Statuses"
+    ],
+    "summary": "Create a new LeadDocket.Core.Models.Status and zero or more new LeadDocket.Core.Models.Substatuses that are associated with the LeadDocket.Core.Models.Status",
+    "parameters": [
+      {
+        "name": "type",
+        "in": "query",
+        "description": "The LeadDocket.Core.Models.Api.Request.CreateStatusRecipe value for this LeadDocket.Core.Models.Status",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/CreateStatusRecipe"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
+    "responseSchema": {
+      "$ref": "#/components/schemas/StatusCreateApiApiHypermedia"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": {
+      "$ref": "#/components/schemas/StatusCreateApi"
+    },
+    "status": 201
   },
   {
     "method": "POST",
@@ -1443,9 +3070,23 @@ export const mockRouteDefinitions = [
       "Statuses"
     ],
     "summary": "Create one or more new LeadDocket.Core.Models.Substatuses on a LeadDocket.Core.Models.Status",
+    "parameters": [
+      {
+        "name": "statusId",
+        "in": "path",
+        "description": "Id of the LeadDocket.Core.Models.Status",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
     "responseSchema": {
       "$ref": "#/components/schemas/StatusApiApiHypermedia"
     },
+    "responseContentType": "application/json",
     "requestSchema": {
       "type": "array",
       "items": {
@@ -1455,18 +3096,6 @@ export const mockRouteDefinitions = [
     "status": 201
   },
   {
-    "method": "DELETE",
-    "path": "/api/statuses/{statusId}/substatus/{substatusId}",
-    "operationId": "Substatus_Delete",
-    "tags": [
-      "Statuses"
-    ],
-    "summary": "Delete a Substatus from a Status",
-    "responseSchema": null,
-    "requestSchema": null,
-    "status": 200
-  },
-  {
     "method": "PATCH",
     "path": "/api/statuses/{statusId}/substatus/{subStatusId}",
     "operationId": "SubStatus_Update",
@@ -1474,12 +3103,157 @@ export const mockRouteDefinitions = [
       "Statuses"
     ],
     "summary": "Update properties of an existing LeadDocket.Core.Models.Substatus.",
+    "parameters": [
+      {
+        "name": "statusId",
+        "in": "path",
+        "description": "ID of the LeadDocket.Core.Models.Status which the LeadDocket.Core.Models.Substatus is associated with",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "subStatusId",
+        "in": "path",
+        "description": "ID of the LeadDocket.Core.Models.Substatus being updated",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": true,
     "responseSchema": {
       "$ref": "#/components/schemas/StatusApiApiHypermedia"
     },
+    "responseContentType": "application/json",
     "requestSchema": {
       "$ref": "#/components/schemas/SubStatusUpdateApi"
     },
+    "status": 200
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/statuses/{statusId}/substatus/{substatusId}",
+    "operationId": "Substatus_Delete",
+    "tags": [
+      "Statuses"
+    ],
+    "summary": "Delete a Substatus from a Status",
+    "parameters": [
+      {
+        "name": "statusId",
+        "in": "path",
+        "description": "ID of the LeadDocket.Core.Models.Status which the LeadDocket.Core.Models.Substatus is associated with",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "substatusId",
+        "in": "path",
+        "description": "ID of the LeadDocket.Core.Models.Substatus being updated",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/tasks/{id}",
+    "operationId": "get /api/tasks/{id}",
+    "tags": [
+      "Tasks"
+    ],
+    "summary": "Get task by Id",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "$ref": "#/components/schemas/TaskApi"
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/tasks/{id}",
+    "operationId": "delete /api/tasks/{id}",
+    "tags": [
+      "Tasks"
+    ],
+    "summary": "delete a task",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": null,
+    "responseContentType": null,
+    "requestSchema": null,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/tasks/leads/{leadId}",
+    "operationId": "get /api/tasks/leads/{leadId}",
+    "tags": [
+      "Tasks"
+    ],
+    "summary": "Get list of tasks for a lead",
+    "parameters": [
+      {
+        "name": "leadId",
+        "in": "path",
+        "description": "",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
+    "responseSchema": {
+      "type": "array",
+      "items": {
+        "$ref": "#/components/schemas/TaskApi"
+      }
+    },
+    "responseContentType": "application/json",
+    "requestSchema": null,
     "status": 200
   },
   {
@@ -1490,9 +3264,12 @@ export const mockRouteDefinitions = [
       "Tasks"
     ],
     "summary": "Create task on a lead",
+    "parameters": [],
+    "requestBodyRequired": true,
     "responseSchema": {
       "$ref": "#/components/schemas/TaskApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": {
       "$ref": "#/components/schemas/TaskCreateApi"
     },
@@ -1506,55 +3283,15 @@ export const mockRouteDefinitions = [
       "Tasks"
     ],
     "summary": "Update a task",
+    "parameters": [],
+    "requestBodyRequired": true,
     "responseSchema": {
       "$ref": "#/components/schemas/TaskApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": {
       "$ref": "#/components/schemas/TaskUpdateApi"
     },
-    "status": 200
-  },
-  {
-    "method": "DELETE",
-    "path": "/api/tasks/{id}",
-    "operationId": "delete /api/tasks/{id}",
-    "tags": [
-      "Tasks"
-    ],
-    "summary": "delete a task",
-    "responseSchema": null,
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/tasks/{id}",
-    "operationId": "get /api/tasks/{id}",
-    "tags": [
-      "Tasks"
-    ],
-    "summary": "Get task by Id",
-    "responseSchema": {
-      "$ref": "#/components/schemas/TaskApi"
-    },
-    "requestSchema": null,
-    "status": 200
-  },
-  {
-    "method": "GET",
-    "path": "/api/tasks/leads/{leadId}",
-    "operationId": "get /api/tasks/leads/{leadId}",
-    "tags": [
-      "Tasks"
-    ],
-    "summary": "Get list of tasks for a lead",
-    "responseSchema": {
-      "type": "array",
-      "items": {
-        "$ref": "#/components/schemas/TaskApi"
-      }
-    },
-    "requestSchema": null,
     "status": 200
   },
   {
@@ -1565,7 +3302,21 @@ export const mockRouteDefinitions = [
       "Tasks"
     ],
     "summary": "Mark a task complete",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": null,
+    "responseContentType": null,
     "requestSchema": null,
     "status": 200
   },
@@ -1577,12 +3328,15 @@ export const mockRouteDefinitions = [
       "Users"
     ],
     "summary": "Returns a list of Lead Docket users",
+    "parameters": [],
+    "requestBodyRequired": false,
     "responseSchema": {
       "type": "array",
       "items": {
         "$ref": "#/components/schemas/UserApi"
       }
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -1594,9 +3348,23 @@ export const mockRouteDefinitions = [
       "Users"
     ],
     "summary": "Returns a single users by ID",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Lead Docket User ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/UserApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -1608,12 +3376,26 @@ export const mockRouteDefinitions = [
       "Users"
     ],
     "summary": "Returns a list of users with a given Role ID",
+    "parameters": [
+      {
+        "name": "leadRoleId",
+        "in": "query",
+        "description": "Role ID from /api/leadroles",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "type": "array",
       "items": {
         "$ref": "#/components/schemas/UserApi"
       }
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -1625,9 +3407,22 @@ export const mockRouteDefinitions = [
       "Users"
     ],
     "summary": "Returns a single users by code",
+    "parameters": [
+      {
+        "name": "code",
+        "in": "path",
+        "description": "Case Tracker Code",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/UserApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   },
@@ -1639,9 +3434,23 @@ export const mockRouteDefinitions = [
       "Users"
     ],
     "summary": "Returns a single users by Filevine User Id",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "Filevine User ID",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "requestBodyRequired": false,
     "responseSchema": {
       "$ref": "#/components/schemas/UserApi"
     },
+    "responseContentType": "application/json",
     "requestSchema": null,
     "status": 200
   }

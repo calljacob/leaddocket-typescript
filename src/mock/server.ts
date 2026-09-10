@@ -207,8 +207,18 @@ export async function startLeadDocketMockServer(
           response.destroy(error instanceof Error ? error : undefined);
           return;
         }
-        writeJson(response, error instanceof MockServerHttpError ? error.status : 500, {
-          message: error instanceof Error ? error.message : 'Mock server error',
+        const expected = error instanceof MockServerHttpError;
+        if (!expected) {
+          console.error(
+            JSON.stringify({
+              message: 'Unhandled mock server request error',
+              error: error instanceof Error ? error.message : String(error),
+              path: request.url?.split('?')[0],
+            }),
+          );
+        }
+        writeJson(response, expected ? error.status : 500, {
+          message: expected ? error.message : 'Mock server error',
         });
       });
     });
@@ -439,6 +449,47 @@ async function handleNodeRequest(context: NodeRequestContext): Promise<void> {
       return;
     }
     writeJson(response, 200, example);
+    return;
+  }
+
+  const webhookExampleTriggerMatch = /^\/__mock\/webhook-examples\/([a-z0-9-]+)\/trigger$/i.exec(
+    url.pathname,
+  );
+  if (webhookExampleTriggerMatch && request.method === 'POST') {
+    const example = context.webhookExamples.find(
+      (candidate) => candidate.id === webhookExampleTriggerMatch[1],
+    );
+    if (!example) {
+      writeJson(response, 404, { message: 'Unknown webhook payload example.' });
+      return;
+    }
+    const body = asOptionalRecord(await readJsonBody(request, context.maxBodyBytes));
+    const eventName = `example.${example.id}`;
+    let removeTarget: (() => void) | undefined;
+    if (typeof body.targetUrl === 'string' && body.targetUrl.trim()) {
+      removeTarget = context.mock.addWebhookSubscription({
+        url: normalizeWebhookTarget(body.targetUrl, context.webhookEgress),
+        events: [eventName],
+      });
+    }
+    let event: MockWebhookEvent;
+    try {
+      event = await context.mock.emitWebhook({
+        event: eventName,
+        entity: 'webhookExample',
+        action: 'triggered',
+        data: example.payload,
+        payload: example.payload as MockWebhookEvent['payload'],
+      });
+    } finally {
+      removeTarget?.();
+    }
+    writeJson(response, 200, {
+      event,
+      deliveries: context.mock
+        .getWebhookDeliveries()
+        .filter((delivery) => delivery.eventId === event.id),
+    });
     return;
   }
 
@@ -808,6 +859,12 @@ function writeJson(response: ServerResponse, status: number, body: unknown): voi
   response.setHeader('content-type', 'application/json; charset=utf-8');
   response.setHeader('x-content-type-options', 'nosniff');
   response.end(JSON.stringify(body));
+}
+
+function asOptionalRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function parseIntegrationPreviewUrls(value: unknown): string[] {

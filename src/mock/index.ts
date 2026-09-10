@@ -312,7 +312,9 @@ export class LeadDocketMockApi {
     for (const store of Object.keys(this.stores) as MockStoreName[]) {
       const values = seed[store];
       if (values) {
-        this.stores[store] = values.map((value) => normalizeRecord(value, () => this.allocateId()));
+        this.stores[store] = values.map((value) =>
+          normalizeStoreRecord(store, value, () => this.allocateId()),
+        );
         for (const record of this.stores[store]) {
           this.captureRecordCustomFields(store, record);
         }
@@ -355,7 +357,9 @@ export class LeadDocketMockApi {
   }
 
   setStore(store: MockStoreName, records: Array<Record<string, unknown>>): void {
-    this.stores[store] = records.map((record) => normalizeRecord(record, () => this.allocateId()));
+    this.stores[store] = records.map((record) =>
+      normalizeStoreRecord(store, record, () => this.allocateId()),
+    );
   }
 
   setCustomFieldValues(
@@ -437,6 +441,7 @@ export class LeadDocketMockApi {
         this.captureRecordCustomFields('opportunities', created);
         const hydrated = this.withCustomFields('opportunities', created);
         const projected = projectWebhook('opportunity-created', {
+          hostname: new URL(this.baseUrl).hostname,
           opportunity: hydrated,
           observability: {
             apiCallDriven: false,
@@ -499,20 +504,19 @@ export class LeadDocketMockApi {
       );
     }
 
-    const invalidPathParameter = findInvalidIntegerPathParameter(match.pathParams);
-    if (invalidPathParameter) {
-      return jsonResponse(
-        {
-          message: `Invalid path parameter "${invalidPathParameter}": expected a 32-bit integer.`,
-        },
-        400,
-      );
-    }
+    const parameterError = validateRequestParameters(
+      match.route.parameters,
+      match.pathParams,
+      normalized.query,
+    );
+    if (parameterError) return jsonResponse({ message: parameterError }, 400);
 
     const requestBodyError = validateTopLevelRequestBody(
       match.route.requestSchema,
+      match.route.requestBodyRequired,
       normalized.body,
     );
+
     if (requestBodyError) {
       return jsonResponse({ message: requestBodyError }, 400);
     }
@@ -538,7 +542,13 @@ export class LeadDocketMockApi {
       const data = await this.handleRequest(ctx);
       if (data instanceof Response) return data;
       await this.maybeEmitApiWebhook(ctx, data);
-      return jsonResponse(data, match.route.status || 200);
+      if (isGenericSuccessPlaceholder(data)) {
+        return new Response(null, { status: match.route.status || 200 });
+      }
+      return jsonResponse(
+        serializeResponseValue(match.route.responseSchema, data),
+        match.route.status || 200,
+      );
     } catch (error) {
       return jsonResponse(
         {
@@ -771,24 +781,55 @@ export class LeadDocketMockApi {
     const collection = this.stores.substatuses;
     const body = asRecord(ctx.body);
     const statusId = ctx.pathParams.statusId;
-    const subStatusId = ctx.pathParams.subStatusId;
+    const subStatusId = ctx.pathParams.subStatusId ?? ctx.pathParams.substatusId;
+    const status = statusId ? findByStoreId(this.stores.statuses, 'statuses', statusId) : undefined;
     if (ctx.method === 'POST') {
-      const created = normalizeRecord({ ...body, StatusId: numberOrString(statusId) }, () =>
-        this.allocateId(),
+      const bodies = Array.isArray(ctx.body) ? ctx.body.map(asRecord) : [body];
+      const created = bodies.map((item) =>
+        normalizeStoreRecord('substatuses', { ...item, StatusId: numberOrString(statusId) }, () =>
+          this.allocateId(),
+        ),
       );
-      collection.push(created);
-      return { IsValid: true, Data: created };
+      collection.push(...created);
+      if (status) {
+        const nested = Array.isArray(status.Substatuses) ? status.Substatuses : [];
+        status.Substatuses = [...nested, ...created];
+      }
+      return { IsValid: Boolean(status), Data: status };
     }
     if (ctx.method === 'PATCH' || ctx.method === 'PUT') {
-      const updated = upsertById(collection, 'substatuses', subStatusId, body);
-      return { IsValid: true, Data: updated };
+      const updated = subStatusId
+        ? findByStoreId(collection, 'substatuses', subStatusId)
+        : undefined;
+      if (!updated) throw new MockApiError(404, `substatus ${subStatusId ?? ''} was not found.`);
+      Object.assign(updated, body, { LastUpdateDate: new Date().toISOString() });
+      if (status && Array.isArray(status.Substatuses)) {
+        const index = status.Substatuses.findIndex(
+          (record) =>
+            Boolean(record && typeof record === 'object') &&
+            storeIdMatches('substatuses', record as Record<string, unknown>, subStatusId ?? ''),
+        );
+        if (index >= 0) status.Substatuses[index] = updated;
+      }
+      return { IsValid: Boolean(status), Data: status };
     }
     if (ctx.method === 'DELETE') {
       const index = collection.findIndex((record) =>
         storeIdMatches('substatuses', record, subStatusId ?? ''),
       );
-      if (index >= 0) collection.splice(index, 1);
-      return { IsValid: true, Data: { success: true } };
+      if (index < 0) throw new MockApiError(404, `substatus ${subStatusId ?? ''} was not found.`);
+      collection.splice(index, 1);
+      if (status && Array.isArray(status.Substatuses)) {
+        status.Substatuses = status.Substatuses.filter(
+          (record) =>
+            !(
+              record &&
+              typeof record === 'object' &&
+              storeIdMatches('substatuses', record as Record<string, unknown>, subStatusId ?? '')
+            ),
+        );
+      }
+      return { IsValid: Boolean(status), Data: status };
     }
     return { IsValid: true, Data: collection };
   }
@@ -864,7 +905,8 @@ export class LeadDocketMockApi {
         });
       }
 
-      const created = normalizeRecord(
+      const created = normalizeStoreRecord(
+        store,
         body,
         () => this.allocateId(),
         sampleRecordForStore(store, this.allocateId()),
@@ -1087,6 +1129,7 @@ export class LeadDocketMockApi {
 
     const descriptor = internalWebhookDescriptor(kind);
     const projected = projectWebhook(kind, {
+      hostname: new URL(this.baseUrl).hostname,
       record: webhookRecord(data),
       eventByUser: asRecord(ctx.body).EventByUser,
       observability: {
@@ -1781,6 +1824,51 @@ async function parseRequestBody(request: Request, maxBodyBytes: number): Promise
   }
 }
 
+function isGenericSuccessPlaceholder(value: unknown): boolean {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 1 &&
+    (value as Record<string, unknown>).success === true,
+  );
+}
+
+function serializeResponseValue(schema: unknown, value: unknown): unknown {
+  if (!schema || value === undefined || value === null) return value;
+  const resolved = resolveRequestSchema(schema);
+  if (!resolved) return value;
+  if (resolved.type === 'array' && Array.isArray(value)) {
+    return value.map((item) => serializeResponseValue(resolved.items, item));
+  }
+  if (
+    (resolved.type === 'object' || resolved.properties) &&
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value)
+  ) {
+    const record = value as Record<string, unknown>;
+    const properties =
+      resolved.properties && typeof resolved.properties === 'object'
+        ? (resolved.properties as Record<string, unknown>)
+        : {};
+    return Object.fromEntries(
+      Object.entries(properties).flatMap(([property, propertySchema]) => {
+        const key =
+          property in record
+            ? property
+            : Object.keys(record).find(
+                (candidate) => candidate.toLowerCase() === property.toLowerCase(),
+              );
+        return key === undefined
+          ? []
+          : [[property, serializeResponseValue(propertySchema, record[key])]];
+      }),
+    );
+  }
+  return value;
+}
+
 function jsonResponse(data: unknown, status: number): Response {
   if (data === undefined || status === 204 || status === 205) {
     return new Response(null, { status });
@@ -1789,14 +1877,18 @@ function jsonResponse(data: unknown, status: number): Response {
   return new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
 }
 
-function normalizeRecord(
+function normalizeStoreRecord(
+  store: MockStoreName,
   record: Record<string, unknown>,
   allocateId: () => number,
   defaults: Record<string, unknown> = {},
 ): Record<string, unknown> {
   const normalized = { ...defaults, ...structuredCloneCompat(record) };
-  const id = normalized.Id ?? normalized.id ?? allocateId();
-  normalized.Id = id;
+  const identity = storeIdentity(store);
+  const id =
+    identity.aliases.map((key) => normalized[key]).find((value) => value !== undefined) ??
+    allocateId();
+  normalized[identity.canonical] = id;
   normalized.id = id;
   return normalized;
 }
@@ -1833,9 +1925,51 @@ function firstDefinedPathParam(
   return Object.values(pathParams)[0];
 }
 
-function validateTopLevelRequestBody(schema: unknown, body: unknown): string | undefined {
+function validateRequestParameters(
+  parameters: readonly unknown[],
+  pathParams: Record<string, string>,
+  query: Record<string, string>,
+): string | undefined {
+  for (const value of parameters) {
+    if (!value || typeof value !== 'object') continue;
+    const parameter = value as Record<string, unknown>;
+    const name = typeof parameter.name === 'string' ? parameter.name : undefined;
+    const location = parameter.in;
+    if (!name || (location !== 'path' && location !== 'query')) continue;
+    const input = location === 'path' ? pathParams[name] : query[name];
+    if (parameter.required === true && (input === undefined || input === '')) {
+      return `Missing required ${location} parameter "${name}".`;
+    }
+    if (input === undefined) continue;
+    const schema =
+      parameter.schema && typeof parameter.schema === 'object'
+        ? (parameter.schema as Record<string, unknown>)
+        : {};
+    if (schema.type === 'integer') {
+      if (!/^-?\d+$/.test(input))
+        return `Invalid ${location} parameter "${name}": expected an integer.`;
+      const numeric = Number(input);
+      if (
+        !Number.isSafeInteger(numeric) ||
+        (schema.format === 'int32' && (numeric < -2_147_483_648 || numeric > 2_147_483_647))
+      ) {
+        return `Invalid ${location} parameter "${name}": expected a 32-bit integer.`;
+      }
+    }
+    if (Array.isArray(schema.enum) && !schema.enum.includes(input)) {
+      return `Invalid ${location} parameter "${name}".`;
+    }
+  }
+  return undefined;
+}
+
+function validateTopLevelRequestBody(
+  schema: unknown,
+  required: boolean,
+  body: unknown,
+): string | undefined {
   if (!schema) return undefined;
-  if (body === undefined) return 'Request body is required.';
+  if (body === undefined) return required ? 'Request body is required.' : undefined;
   const resolved = resolveRequestSchema(schema);
   if (!resolved) return undefined;
   if (resolved.type === 'array' && !Array.isArray(body)) return 'Request body must be an array.';
@@ -1878,18 +2012,6 @@ function resolveRequestSchema(schema: unknown): Record<string, unknown> | undefi
   return record;
 }
 
-function findInvalidIntegerPathParameter(pathParams: Record<string, string>): string | undefined {
-  for (const [name, value] of Object.entries(pathParams)) {
-    if (!name.toLowerCase().endsWith('id')) continue;
-    if (!/^-?\d+$/.test(value)) return name;
-    const numeric = Number(value);
-    if (!Number.isInteger(numeric) || numeric < -2_147_483_648 || numeric > 2_147_483_647) {
-      return name;
-    }
-  }
-  return undefined;
-}
-
 function findByStoreId(
   collection: Array<Record<string, unknown>>,
   store: MockStoreName,
@@ -1904,17 +2026,21 @@ function upsertById(
   id: string | undefined,
   patch: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (id) {
-    const existing = collection.find((record) => storeIdMatches(store, record, id));
-    if (existing) {
-      Object.assign(existing, patch, { lastUpdated: new Date().toISOString() });
-      return existing;
-    }
-  }
-
-  const created = normalizeRecord(patch, () => Number(id) || Date.now());
-  collection.push(created);
-  return created;
+  const patchId = storeIdentity(store)
+    .aliases.map((key) => patch[key])
+    .find((value) => value !== undefined);
+  const targetId =
+    id ??
+    (typeof patchId === 'string' || typeof patchId === 'number' ? patchId.toString() : undefined);
+  if (!targetId) throw new MockApiError(400, `${STORE_TO_ENTITY[store]} ID is required.`);
+  const existing = collection.find((record) => storeIdMatches(store, record, targetId));
+  if (!existing)
+    throw new MockApiError(404, `${STORE_TO_ENTITY[store]} ${targetId} was not found.`);
+  Object.assign(existing, patch, {
+    LastUpdateDate: new Date().toISOString(),
+    lastUpdated: new Date().toISOString(),
+  });
+  return existing;
 }
 
 function storeIdMatches(
@@ -1922,27 +2048,49 @@ function storeIdMatches(
   record: Record<string, unknown>,
   id: string,
 ): boolean {
-  const identityKeys: Record<MockStoreName, string[]> = {
-    contacts: ['Id', 'id', 'ContactId', 'contactId'],
-    leads: ['Id', 'id', 'LeadId', 'leadId'],
-    opportunities: ['Id', 'id', 'OpportunityId', 'opportunityId'],
-    tasks: ['Id', 'id', 'TaskId', 'taskId'],
-    users: ['Id', 'id', 'UserId', 'userId'],
-    statuses: ['Id', 'id', 'StatusId', 'statusId'],
-    substatuses: ['Id', 'id', 'SubStatusId', 'subStatusId', 'substatusId'],
-    referrals: ['Id', 'id', 'ReferralId', 'referralId'],
-    referralGroups: ['Id', 'id', 'ReferralGroupId', 'referralGroupId'],
-    settlements: ['Id', 'id', 'SettlementId', 'settlementId'],
-    expenses: ['Id', 'id', 'ExpenseId', 'expenseId'],
-    leadForms: ['LeadFormId', 'leadFormId', 'Id', 'id'],
-    messages: ['Id', 'id', 'MessageId', 'messageId'],
-    externalCalls: ['Id', 'id', 'ExternalCallId', 'externalCallId'],
-    leadRoles: ['LeadRoleId', 'leadRoleId', 'Id', 'id'],
-    leadSources: ['LeadSourceId', 'leadSourceId', 'Id', 'id'],
-    customFields: ['Id', 'id'],
-    contactCustomFields: ['Id', 'id'],
+  return storeIdentity(store).aliases.some((key) => String(record[key]) === id);
+}
+
+function storeIdentity(store: MockStoreName): { canonical: string; aliases: string[] } {
+  const identities: Record<MockStoreName, { canonical: string; aliases: string[] }> = {
+    contacts: { canonical: 'Id', aliases: ['Id', 'id', 'ContactId', 'contactId'] },
+    leads: { canonical: 'Id', aliases: ['Id', 'id', 'LeadId', 'leadId'] },
+    opportunities: { canonical: 'Id', aliases: ['Id', 'id', 'OpportunityId', 'opportunityId'] },
+    tasks: { canonical: 'Id', aliases: ['Id', 'id', 'TaskId', 'taskId'] },
+    users: { canonical: 'Id', aliases: ['Id', 'id', 'UserId', 'userId'] },
+    statuses: { canonical: 'Id', aliases: ['Id', 'id', 'StatusId', 'statusId'] },
+    substatuses: {
+      canonical: 'Id',
+      aliases: ['Id', 'id', 'SubStatusId', 'subStatusId', 'substatusId'],
+    },
+    referrals: { canonical: 'Id', aliases: ['Id', 'id', 'ReferralId', 'referralId'] },
+    referralGroups: {
+      canonical: 'Id',
+      aliases: ['Id', 'id', 'ReferralGroupId', 'referralGroupId'],
+    },
+    settlements: { canonical: 'Id', aliases: ['Id', 'id', 'SettlementId', 'settlementId'] },
+    expenses: { canonical: 'Id', aliases: ['Id', 'id', 'ExpenseId', 'expenseId'] },
+    leadForms: {
+      canonical: 'LeadFormId',
+      aliases: ['LeadFormId', 'leadFormId', 'Id', 'id'],
+    },
+    messages: { canonical: 'Id', aliases: ['Id', 'id', 'MessageId', 'messageId'] },
+    externalCalls: {
+      canonical: 'Id',
+      aliases: ['Id', 'id', 'ExternalCallId', 'externalCallId'],
+    },
+    leadRoles: {
+      canonical: 'LeadRoleId',
+      aliases: ['LeadRoleId', 'leadRoleId', 'Id', 'id'],
+    },
+    leadSources: {
+      canonical: 'LeadSourceId',
+      aliases: ['LeadSourceId', 'leadSourceId', 'Id', 'id'],
+    },
+    customFields: { canonical: 'Id', aliases: ['Id', 'id'] },
+    contactCustomFields: { canonical: 'Id', aliases: ['Id', 'id'] },
   };
-  return identityKeys[store].some((key) => String(record[key]) === id);
+  return identities[store];
 }
 
 function numberOrString(value: string | undefined): string | number | undefined {

@@ -1,6 +1,16 @@
 export type OperationRecord = Record<string, unknown>;
 
-export type OperationStoreName = 'contacts' | 'leads' | 'opportunities' | 'tasks' | 'leadForms';
+export type OperationStoreName =
+  | 'contacts'
+  | 'leads'
+  | 'opportunities'
+  | 'tasks'
+  | 'users'
+  | 'referrals'
+  | 'settlements'
+  | 'expenses'
+  | 'leadForms'
+  | 'messages';
 
 export type OperationContext = {
   operationId: string;
@@ -59,10 +69,35 @@ const IDENTITIES: Record<OperationStoreName, IdentityDefinition> = {
     aliases: ['Id', 'id', 'TaskId', 'taskId'],
     entity: 'task',
   },
+  users: {
+    canonical: 'Id',
+    aliases: ['Id', 'id', 'UserId', 'userId'],
+    entity: 'user',
+  },
+  referrals: {
+    canonical: 'Id',
+    aliases: ['Id', 'id', 'ReferralId', 'referralId'],
+    entity: 'referral',
+  },
+  settlements: {
+    canonical: 'Id',
+    aliases: ['Id', 'id', 'SettlementId', 'settlementId'],
+    entity: 'settlement',
+  },
+  expenses: {
+    canonical: 'Id',
+    aliases: ['Id', 'id', 'ExpenseId', 'expenseId'],
+    entity: 'expense',
+  },
   leadForms: {
     canonical: 'LeadFormId',
     aliases: ['LeadFormId', 'leadFormId', 'Id', 'id'],
     entity: 'lead form',
+  },
+  messages: {
+    canonical: 'Id',
+    aliases: ['Id', 'id', 'MessageId', 'messageId'],
+    entity: 'message',
   },
 };
 
@@ -71,9 +106,16 @@ const OPERATIONS: Readonly<Record<string, OperationHandler>> = {
   contacts_getByCode: getContactByCode,
   contacts_search: searchContacts,
   contacts_recent_by_phone: getRecentContactsByPhone,
+  contacts_update: updateContact,
   contacts_updatecode: updateContactCode,
+  contacts_add: addContact,
   contacts_addTag: addContactTag,
   contacts_deleteTag: deleteContactTag,
+
+  GetExpense: getExpense,
+  GetExpenses: getExpenses,
+  AddExpense: addExpense,
+  Expenses_Delete: deleteExpense,
 
   LeadForms_GetAll: getAllLeadForms,
   LeadForms_Create: createLeadForm,
@@ -93,8 +135,11 @@ const OPERATIONS: Readonly<Record<string, OperationHandler>> = {
   leads_getByOpportunityId: getLeadByOpportunityId,
   leads_getPendingExport: getPendingLeadIds,
   leads_getByLastStatusChangeSince: getLeadsByLastStatusChange,
+  Lead_Update: updateLead,
   leads_putUpdateCode: updateLeadCode,
   leads_putMarkAsProcessed: markLeadProcessed,
+  leads_postAddRelatedContact: addLeadRelatedContact,
+  leads_patchUpdateLeadRoleUser: updateLeadRoleUser,
   'post /api/leads/{id}/notes': addLeadNote,
   'put /api/leads/{id}/notes/{noteId}': updateLeadNote,
   'delete /api/leads/{id}/notes/{noteId}': deleteLeadNote,
@@ -114,12 +159,35 @@ const OPERATIONS: Readonly<Record<string, OperationHandler>> = {
   opportunities_Lock: lockOpportunity,
   opportunities_Unlock: unlockOpportunity,
 
+  'post /api/messages': createMessage,
+  'post /api/messages/sendtext': sendMessage,
+  'post /api/messages/sendemail': sendMessage,
+
+  referrals_GetById: getReferralById,
+  referrals_Edit: editReferral,
+  referrals_Delete: deleteReferral,
+  referrals_GetByExternalCode: getReferralByExternalCode,
+  referrals_GetList: getReferrals,
+  referrals_UpdateCode: updateReferralCode,
+  referrals_UpdateExternalCode: updateReferralExternalCode,
+  referrals_Add: addReferral,
+
+  Settlements_GetSettlement: getSettlement,
+  GetSettlementsByLeadId: getSettlementsByLeadId,
+  AddSettlement: addSettlement,
+
   task_add: addTask,
   'put /api/tasks': updateTask,
   'delete /api/tasks/{id}': deleteTask,
   'get /api/tasks/{id}': getTaskById,
   'get /api/tasks/leads/{leadId}': getTasksByLeadId,
   'put /api/tasks/markcomplete/{id}': markTaskComplete,
+
+  users_list: getUsers,
+  User_byId: getUserById,
+  users_byRole: getUsersByRole,
+  User_byCode: getUserByCode,
+  User_byFilevineUserId: getUserByFilevineUserId,
 };
 
 /**
@@ -231,6 +299,18 @@ function getRecentContactsByPhone(
   ];
 }
 
+function updateContact(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  const contact = requireRecord(dependencies, 'contacts', pathValue(context, 'id'));
+  Object.assign(contact, context.body);
+  return contact;
+}
+
+function addContact(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  const contact = { ...context.body, Id: dependencies.allocateId() };
+  dependencies.getStore('contacts').push(contact);
+  return contact;
+}
+
 function getContactsLastUpdatedSince(
   context: NormalizedOperationContext,
   dependencies: OperationDependencies,
@@ -272,6 +352,41 @@ function deleteContactTag(
   const contactTagId = pathValue(context, 'contactTagId');
   const tags = childArray(contact, 'Tags', ['tags']);
   removeWhere(tags, (tag) => propertyMatches(tag, ['Id', 'id', 'ContactTagId'], contactTagId));
+  return undefined;
+}
+
+function getExpense(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  return requireRecord(dependencies, 'expenses', pathValue(context, 'id'));
+}
+
+function getExpenses(
+  context: NormalizedOperationContext,
+  dependencies: OperationDependencies,
+): OperationRecord[] {
+  const start = validTimestamp(context.query.startdate);
+  const end = validTimestamp(context.query.enddate);
+  if (start === undefined && end === undefined) return [...dependencies.getStore('expenses')];
+
+  return dependencies.getStore('expenses').filter((expense) => {
+    const timestamp = validTimestamp(
+      primitiveString(propertyValue(expense, ['ExpenseDate', 'expenseDate'])),
+    );
+    return (
+      timestamp !== undefined &&
+      (start === undefined || timestamp >= start) &&
+      (end === undefined || timestamp <= end)
+    );
+  });
+}
+
+function addExpense(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  const expense = { ...context.body, Id: dependencies.allocateId() };
+  dependencies.getStore('expenses').push(expense);
+  return expense;
+}
+
+function deleteExpense(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  removeRecord(dependencies, 'expenses', pathValue(context, 'id'));
   return undefined;
 }
 
@@ -470,6 +585,12 @@ function getLeadsLastUpdatedSince(
   );
 }
 
+function updateLead(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  const lead = requireRecord(dependencies, 'leads', pathValue(context, 'id'));
+  Object.assign(lead, context.body);
+  return undefined;
+}
+
 function updateLeadCode(context: NormalizedOperationContext, dependencies: OperationDependencies) {
   const lead = requireRecord(dependencies, 'leads', queryValue(context, dependencies, 'id'));
   lead.Code = queryValue(context, dependencies, 'externalId');
@@ -482,6 +603,54 @@ function markLeadProcessed(
 ) {
   const lead = requireRecord(dependencies, 'leads', queryValue(context, dependencies, 'id'));
   lead.Processed = parseBoolean(context.query.markprocessed, true);
+  return undefined;
+}
+
+function addLeadRelatedContact(
+  context: NormalizedOperationContext,
+  dependencies: OperationDependencies,
+) {
+  const lead = requireRecord(dependencies, 'leads', queryValue(context, dependencies, 'leadid'));
+  const contact = requireRecord(
+    dependencies,
+    'contacts',
+    queryValue(context, dependencies, 'contactid'),
+  );
+  childArray(lead, 'RelatedContacts', ['relatedContacts']).push({
+    Relationship: queryValue(context, dependencies, 'relationship'),
+    IsPlaintiff: parseBoolean(context.query.additionalplaintiff, false),
+    Contact: contact,
+  });
+  return undefined;
+}
+
+function updateLeadRoleUser(
+  context: NormalizedOperationContext,
+  dependencies: OperationDependencies,
+) {
+  const lead = requireRecord(dependencies, 'leads', queryValue(context, dependencies, 'leadid'));
+  const roleId = queryValue(context, dependencies, 'leadRoleId');
+  const user = requireRecord(
+    dependencies,
+    'users',
+    queryValue(context, dependencies, 'assignToUserId'),
+  );
+  const role = recordArray(propertyValue(user, ['Roles', 'roles'])).find((candidate) =>
+    propertyMatches(candidate, ['LeadRoleId', 'leadRoleId', 'Id', 'id'], roleId),
+  );
+  const assignment: OperationRecord = {
+    ...user,
+    LeadRoleId: numberOrString(roleId),
+  };
+  const roleName = role && propertyValue(role, ['RoleName', 'roleName']);
+  if (roleName !== undefined) assignment.RoleName = roleName;
+
+  const assignments = childArray(lead, 'AssignedTo', ['assignedTo']);
+  const existing = assignments.find((candidate) =>
+    propertyMatches(candidate, ['LeadRoleId', 'leadRoleId'], roleId),
+  );
+  if (existing) Object.assign(existing, assignment);
+  else assignments.push(assignment);
   return undefined;
 }
 
@@ -713,6 +882,128 @@ function unlockOpportunity(
   return opportunity;
 }
 
+function createMessage(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  return persistMessage(context, dependencies, false);
+}
+
+function sendMessage(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  return persistMessage(context, dependencies, true);
+}
+
+function persistMessage(
+  context: NormalizedOperationContext,
+  dependencies: OperationDependencies,
+  hasBeenSent: boolean,
+) {
+  const leadId = requiredBodyIdentifier(context, dependencies, ['LeadId', 'leadId'], 'LeadId');
+  requireRecord(dependencies, 'leads', leadId);
+  const message: OperationRecord = {
+    ...context.body,
+    Id: dependencies.allocateId(),
+    LeadId: numberOrString(leadId),
+    SendFrom: context.body.SendFrom ?? context.body.sendFrom ?? null,
+    SendTo: context.body.SendTo ?? context.body.sendTo ?? null,
+    SendCC: context.body.SendCC ?? context.body.sendCC ?? null,
+    Subject: context.body.Subject ?? context.body.subject ?? null,
+    Body: context.body.Body ?? context.body.body ?? null,
+    CreatedOn: dependencies.now(),
+    DueForSendingOn: null,
+    IsInbound: false,
+    HasBeenSent: hasBeenSent,
+  };
+  dependencies.getStore('messages').push(message);
+  return message;
+}
+
+function getReferralById(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  return requireRecord(dependencies, 'referrals', pathValue(context, 'id'));
+}
+
+function editReferral(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  const referral = requireRecord(dependencies, 'referrals', pathValue(context, 'id'));
+  Object.assign(referral, context.body);
+  return referral;
+}
+
+function deleteReferral(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  removeRecord(dependencies, 'referrals', pathValue(context, 'id'));
+  return undefined;
+}
+
+function getReferralByExternalCode(
+  context: NormalizedOperationContext,
+  dependencies: OperationDependencies,
+) {
+  return requireByProperty(
+    dependencies,
+    'referrals',
+    ['ExternalCode', 'externalCode'],
+    queryValue(context, dependencies, 'externalCode'),
+  );
+}
+
+function getReferrals(_context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  return [...dependencies.getStore('referrals')];
+}
+
+function updateReferralCode(
+  context: NormalizedOperationContext,
+  dependencies: OperationDependencies,
+) {
+  const referral = requireRecord(
+    dependencies,
+    'referrals',
+    queryValue(context, dependencies, 'id'),
+  );
+  referral.Code = queryValue(context, dependencies, 'code');
+  return undefined;
+}
+
+function updateReferralExternalCode(
+  context: NormalizedOperationContext,
+  dependencies: OperationDependencies,
+) {
+  const referral = requireRecord(
+    dependencies,
+    'referrals',
+    queryValue(context, dependencies, 'id'),
+  );
+  referral.ExternalCode = queryValue(context, dependencies, 'externalCode');
+  return undefined;
+}
+
+function addReferral(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  const referral = { ...context.body, Id: dependencies.allocateId() };
+  dependencies.getStore('referrals').push(referral);
+  return referral;
+}
+
+function getSettlement(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  return requireRecord(dependencies, 'settlements', pathValue(context, 'id'));
+}
+
+function getSettlementsByLeadId(
+  context: NormalizedOperationContext,
+  dependencies: OperationDependencies,
+) {
+  const leadId = pathValue(context, 'id');
+  return dependencies
+    .getStore('settlements')
+    .filter((settlement) => propertyMatches(settlement, ['LeadId', 'leadId'], leadId));
+}
+
+function addSettlement(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  const leadId = requiredBodyIdentifier(context, dependencies, ['LeadId', 'leadId'], 'LeadId');
+  requireRecord(dependencies, 'leads', leadId);
+  const settlement = {
+    ...context.body,
+    Id: dependencies.allocateId(),
+    LeadId: numberOrString(leadId),
+  };
+  dependencies.getStore('settlements').push(settlement);
+  return settlement;
+}
+
 function addTask(context: NormalizedOperationContext, dependencies: OperationDependencies) {
   const task = { ...context.body, Id: dependencies.allocateId() };
   dependencies.getStore('tasks').push(task);
@@ -756,6 +1047,47 @@ function markTaskComplete(
   task.Completed = true;
   task.TaskCompletionDate = dependencies.now();
   return undefined;
+}
+
+function getUsers(
+  _context: NormalizedOperationContext,
+  dependencies: OperationDependencies,
+): OperationRecord[] {
+  return [...dependencies.getStore('users')];
+}
+
+function getUserById(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  return requireRecord(dependencies, 'users', pathValue(context, 'id'));
+}
+
+function getUsersByRole(
+  context: NormalizedOperationContext,
+  dependencies: OperationDependencies,
+): OperationRecord[] {
+  const roleId = queryValue(context, dependencies, 'leadRoleId');
+  return dependencies
+    .getStore('users')
+    .filter((user) =>
+      recordArray(propertyValue(user, ['Roles', 'roles'])).some((role) =>
+        propertyMatches(role, ['LeadRoleId', 'leadRoleId', 'Id', 'id'], roleId),
+      ),
+    );
+}
+
+function getUserByCode(context: NormalizedOperationContext, dependencies: OperationDependencies) {
+  return requireByProperty(dependencies, 'users', ['Code', 'code'], pathValue(context, 'code'));
+}
+
+function getUserByFilevineUserId(
+  context: NormalizedOperationContext,
+  dependencies: OperationDependencies,
+) {
+  return requireByProperty(
+    dependencies,
+    'users',
+    ['FilevineUserId', 'FilevineUserID', 'filevineUserId', 'filevineUserID'],
+    pathValue(context, 'id'),
+  );
 }
 
 function collectionSectionContext(
@@ -921,6 +1253,18 @@ function propertyValue(record: OperationRecord, properties: readonly string[]): 
   return undefined;
 }
 
+function requiredBodyIdentifier(
+  context: NormalizedOperationContext,
+  dependencies: OperationDependencies,
+  properties: readonly string[],
+  name: string,
+): string {
+  const value = primitiveString(propertyValue(context.body, properties));
+  return value === undefined || value === ''
+    ? dependencies.fail(400, `Operation ${context.operationId} requires body property ${name}.`)
+    : value;
+}
+
 function pathValue(context: NormalizedOperationContext, name: string): string {
   const value = context.pathParams[name];
   if (value === undefined || value === '') {
@@ -976,6 +1320,12 @@ function removeWhere(records: OperationRecord[], predicate: (record: OperationRe
 function numberOrString(value: string): number | string {
   const number = Number(value);
   return Number.isSafeInteger(number) ? number : value;
+}
+
+function validTimestamp(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? undefined : timestamp;
 }
 
 function positiveInteger(value: string | undefined, fallback: number): number {

@@ -49,7 +49,14 @@ try {
 
 async function checkPackage(label, root, manifest) {
   const entries = packageEntries(manifest, root);
-  for (const requiredSubpath of ['.', './mock/server', './mock/faker']) {
+  for (const requiredSubpath of [
+    '.',
+    './client',
+    './mock',
+    './discovery',
+    './mock/server',
+    './mock/faker',
+  ]) {
     if (!entries.some((entry) => entry.subpath === requiredSubpath)) {
       failures.push(`${label} does not expose required subpath ${requiredSubpath}`);
     }

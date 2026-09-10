@@ -377,8 +377,13 @@ describe('Lead Docket webhook fidelity', () => {
         await readFile(`examples/webhooks/${example.file}`, 'utf8'),
       ) as Record<string, unknown>;
       const projected = projectWebhook(kind, factsFor(kind));
+      const templateOnly = projectWebhook(kind);
       const keys = keyFields[kind];
+      const expectedKeys = Object.keys(fixture)
+        .filter((key) => !key.startsWith('_request_'))
+        .sort();
 
+      expect(Object.keys(templateOnly.payload).sort(), kind).toEqual(expectedKeys);
       expect(select(projected.payload, keys), kind).toEqual(select(fixture, keys));
       expect(projected.payload, kind).not.toHaveProperty('Contact');
       expect(projected.payload, kind).not.toHaveProperty('CustomFields');
@@ -408,7 +413,7 @@ describe('Lead Docket webhook fidelity', () => {
     expect(projected.payload).not.toHaveProperty('eventId');
     expect(projected.payload).not.toHaveProperty('operationId');
     expect(projected.payload).not.toHaveProperty('path');
-    expect(projected.payload).not.toHaveProperty('hostname');
+    expect(projected.payload).toHaveProperty('hostname', 'mock.leaddocket.local');
     expect(projected.payload).not.toHaveProperty('_request_path');
     expect(projected.payload).not.toHaveProperty('_request_type_param');
   });

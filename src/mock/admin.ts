@@ -156,7 +156,10 @@ export function renderLeadDocketMockAdminPage(): string {
           <label>Event
             <select id="webhook-example-select"></select>
           </label>
-          <button id="copy-webhook-example" type="button" class="secondary">Copy JSON</button>
+          <div class="integration-actions">
+            <button id="copy-webhook-example" type="button" class="secondary">Copy JSON</button>
+            <button id="send-webhook-example" type="button">Send selected example</button>
+          </div>
           <pre id="webhook-example-json" class="result">Loading examples…</pre>
         </div>
         <div class="card stack">
@@ -194,6 +197,7 @@ leaddocket-mock sync-live</code>
     const webhookExampleSelect = document.querySelector('#webhook-example-select');
     const webhookExampleJson = document.querySelector('#webhook-example-json');
     const copyWebhookExample = document.querySelector('#copy-webhook-example');
+    const sendWebhookExample = document.querySelector('#send-webhook-example');
     const submitButton = document.querySelector('#custom-submit');
     let selectedWebhookPayload;
     let webhookExamplesInitialized = false;
@@ -369,6 +373,28 @@ leaddocket-mock sync-live</code>
       await navigator.clipboard.writeText(JSON.stringify(selectedWebhookPayload, null, 2));
       copyWebhookExample.textContent = 'Copied';
       setTimeout(() => { copyWebhookExample.textContent = 'Copy JSON'; }, 1200);
+    });
+
+    sendWebhookExample.addEventListener('click', async () => {
+      const id = webhookExampleSelect.value;
+      if (!id) return;
+      sendWebhookExample.disabled = true;
+      try {
+        const response = await fetch('/__mock/webhook-examples/' + encodeURIComponent(id) + '/trigger', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ targetUrl: targetInput.value.trim() || undefined }),
+        });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.message || 'Example delivery failed.');
+        const failed = body.deliveries.filter((delivery) => !delivery.ok);
+        webhookExampleJson.textContent = JSON.stringify(selectedWebhookPayload, null, 2) + '\n\n' + (failed.length ? 'Delivery failed: ' + JSON.stringify(failed, null, 2) : 'Example sent successfully.');
+        await loadState();
+      } catch (error) {
+        webhookExampleJson.textContent = error instanceof Error ? error.message : String(error);
+      } finally {
+        sendWebhookExample.disabled = false;
+      }
     });
 
     integrationImportButton.addEventListener('click', async () => {

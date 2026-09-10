@@ -27,7 +27,12 @@ function harness(seed: Partial<Record<OperationStoreName, OperationRecord[]>> = 
     leads: seed.leads ?? [],
     opportunities: seed.opportunities ?? [],
     tasks: seed.tasks ?? [],
+    users: seed.users ?? [],
+    referrals: seed.referrals ?? [],
+    settlements: seed.settlements ?? [],
+    expenses: seed.expenses ?? [],
     leadForms: seed.leadForms ?? [],
+    messages: seed.messages ?? [],
   };
   const dependencies: OperationDependencies = {
     getStore: (store) => stores[store],
@@ -420,6 +425,229 @@ describe('operation-specific mock dispatch', () => {
       TotalPages: 3,
       Records: [contacts[1]],
     });
+  });
+
+  it('selects users by Lead Docket ID, role, code, and Filevine user ID', () => {
+    const intake = {
+      Id: 1,
+      FirstName: 'Ada',
+      Code: 'ADA',
+      FilevineUserId: 501,
+      Roles: [{ LeadRoleId: 7, RoleName: 'Intake' }],
+    };
+    const attorney = {
+      Id: 2,
+      FirstName: 'Grace',
+      Code: 'GRACE',
+      FilevineUserId: 502,
+      Roles: [{ LeadRoleId: 9, RoleName: 'Attorney' }],
+    };
+    const mock = harness({ users: [intake, attorney] });
+
+    expect(mock.dispatch({ operationId: 'users_list' })).toEqual([intake, attorney]);
+    expect(mock.dispatch({ operationId: 'User_byId', pathParams: { id: '2' } })).toBe(attorney);
+    expect(mock.dispatch({ operationId: 'users_byRole', query: { leadRoleId: '7' } })).toEqual([
+      intake,
+    ]);
+    expect(mock.dispatch({ operationId: 'User_byCode', pathParams: { code: 'grace' } })).toBe(
+      attorney,
+    );
+    expect(mock.dispatch({ operationId: 'User_byFilevineUserId', pathParams: { id: '501' } })).toBe(
+      intake,
+    );
+  });
+
+  it('handles referral selectors, code commands, and explicit CRUD identities', () => {
+    const first = { Id: 1, Name: 'North Firm', Code: 'NORTH', ExternalCode: 'EXT-1' };
+    const second = { Id: 2, Name: 'South Firm', ExternalCode: 'EXT-2' };
+    const mock = harness({ referrals: [first, second] });
+
+    expect(mock.dispatch({ operationId: 'referrals_GetList' })).toEqual([first, second]);
+    expect(mock.dispatch({ operationId: 'referrals_GetById', pathParams: { id: '2' } })).toBe(
+      second,
+    );
+    expect(
+      mock.dispatch({
+        operationId: 'referrals_GetByExternalCode',
+        query: { externalCode: 'ext-1' },
+      }),
+    ).toBe(first);
+
+    expect(
+      mock.dispatch({ operationId: 'referrals_UpdateCode', query: { id: '2', code: 'SOUTH' } }),
+    ).toBeUndefined();
+    expect(
+      mock.dispatch({
+        operationId: 'referrals_UpdateExternalCode',
+        query: { id: '2', externalCode: 'EXT-NEW' },
+      }),
+    ).toBeUndefined();
+    expect(second).toMatchObject({ Code: 'SOUTH', ExternalCode: 'EXT-NEW' });
+
+    expect(
+      mock.dispatch({
+        operationId: 'referrals_Edit',
+        pathParams: { id: '1' },
+        body: { Name: 'North Firm Updated', PracticeArea: 'Injury' },
+      }),
+    ).toBe(first);
+    expect(
+      mock.dispatch({
+        operationId: 'referrals_Add',
+        body: { Name: 'West Firm', PracticeArea: 'Employment' },
+      }),
+    ).toMatchObject({ Id: 100, Name: 'West Firm' });
+    expect(
+      mock.dispatch({ operationId: 'referrals_Delete', pathParams: { id: '2' } }),
+    ).toBeUndefined();
+    expect(mock.stores.referrals).toEqual([first, expect.objectContaining({ Id: 100 })]);
+  });
+
+  it('persists created and sent messages with distinct send state', () => {
+    const messages: OperationRecord[] = [];
+    const mock = harness({ leads: [{ Id: 8 }], messages });
+
+    expect(
+      mock.dispatch({
+        operationId: 'post /api/messages',
+        body: {
+          LeadId: 8,
+          SendFrom: 'intake@example.com',
+          SendTo: 'client@example.com',
+          Subject: 'Welcome',
+          Body: 'Draft body',
+        },
+      }),
+    ).toMatchObject({
+      Id: 100,
+      LeadId: 8,
+      CreatedOn: '2026-01-02T03:04:05.000Z',
+      IsInbound: false,
+      HasBeenSent: false,
+    });
+    expect(
+      mock.dispatch({
+        operationId: 'post /api/messages/sendtext',
+        body: { LeadId: 8, SendTo: '5551234567', Body: 'Sent text' },
+      }),
+    ).toMatchObject({
+      Id: 101,
+      LeadId: 8,
+      Subject: null,
+      HasBeenSent: true,
+    });
+    expect(
+      mock.dispatch({
+        operationId: 'post /api/messages/sendemail',
+        body: {
+          LeadId: 8,
+          SendFrom: 'intake@example.com',
+          SendTo: 'client@example.com',
+          Subject: 'Sent email',
+          Body: 'Sent body',
+        },
+      }),
+    ).toMatchObject({ Id: 102, LeadId: 8, Subject: 'Sent email', HasBeenSent: true });
+    expect(messages).toHaveLength(3);
+  });
+
+  it('uses expense date ranges and settlement lead IDs for selectors and mutations', () => {
+    const early = { Id: 1, ExpenseDate: '2026-01-01T00:00:00Z', Amount: 10 };
+    const middle = { Id: 2, ExpenseDate: '2026-01-15T00:00:00Z', Amount: 20 };
+    const late = { Id: 3, ExpenseDate: '2026-02-01T00:00:00Z', Amount: 30 };
+    const firstSettlement = { Id: 20, LeadId: 8, Fee: 1000 };
+    const otherSettlement = { Id: 21, LeadId: 9, Fee: 2000 };
+    const mock = harness({
+      leads: [{ Id: 8 }, { Id: 9 }],
+      expenses: [early, middle, late],
+      settlements: [firstSettlement, otherSettlement],
+    });
+
+    expect(mock.dispatch({ operationId: 'GetExpense', pathParams: { id: '2' } })).toBe(middle);
+    expect(
+      mock.dispatch({
+        operationId: 'GetExpenses',
+        query: { startdate: '2026-01-10T00:00:00Z', enddate: '2026-01-31T00:00:00Z' },
+      }),
+    ).toEqual([middle]);
+    expect(
+      mock.dispatch({
+        operationId: 'AddExpense',
+        body: {
+          Amount: 40,
+          ExpenseDate: '2026-02-15T00:00:00Z',
+          MarketingSourceId: 4,
+          Vendor: 'Filing service',
+        },
+      }),
+    ).toMatchObject({ Id: 100, Amount: 40 });
+    mock.dispatch({ operationId: 'Expenses_Delete', pathParams: { id: '1' } });
+    expect(mock.stores.expenses).not.toContain(early);
+
+    expect(
+      mock.dispatch({ operationId: 'Settlements_GetSettlement', pathParams: { id: '20' } }),
+    ).toBe(firstSettlement);
+    expect(
+      mock.dispatch({ operationId: 'GetSettlementsByLeadId', pathParams: { id: '8' } }),
+    ).toEqual([firstSettlement]);
+    expect(
+      mock.dispatch({
+        operationId: 'AddSettlement',
+        body: { LeadId: 8, Fee: 3000, Summary: 'Resolved' },
+      }),
+    ).toMatchObject({ Id: 101, LeadId: 8, Fee: 3000 });
+  });
+
+  it('uses explicit path and query identities for updates and lead relationships', () => {
+    const contact = { Id: 3, FirstName: 'Old', LastName: 'Name' };
+    const lead: OperationRecord = { Id: 7, Summary: 'Old summary' };
+    const user = {
+      Id: 11,
+      FirstName: 'Attorney',
+      Roles: [{ LeadRoleId: 9, RoleName: 'Attorney' }],
+    };
+    const mock = harness({ contacts: [contact], leads: [lead], users: [user] });
+
+    expect(
+      mock.dispatch({
+        operationId: 'contacts_update',
+        pathParams: { id: '3' },
+        body: { FirstName: 'Updated' },
+      }),
+    ).toBe(contact);
+    expect(
+      mock.dispatch({
+        operationId: 'Lead_Update',
+        pathParams: { id: '7' },
+        body: { Summary: 'Updated summary' },
+      }),
+    ).toBeUndefined();
+    expect(
+      mock.dispatch({
+        operationId: 'leads_postAddRelatedContact',
+        query: {
+          leadid: '7',
+          contactid: '3',
+          relationship: 'Spouse',
+          additionalplaintiff: 'true',
+        },
+      }),
+    ).toBeUndefined();
+    expect(
+      mock.dispatch({
+        operationId: 'leads_patchUpdateLeadRoleUser',
+        query: { leadid: '7', leadRoleId: '9', assignToUserId: '11' },
+      }),
+    ).toBeUndefined();
+
+    expect(contact.FirstName).toBe('Updated');
+    expect(lead.Summary).toBe('Updated summary');
+    expect(lead.RelatedContacts).toEqual([
+      { Relationship: 'Spouse', IsPlaintiff: true, Contact: contact },
+    ]);
+    expect(lead.AssignedTo).toEqual([
+      expect.objectContaining({ Id: 11, LeadRoleId: 9, RoleName: 'Attorney' }),
+    ]);
   });
 
   it('does not claim unregistered operations through substring inference', () => {

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { randomUUID } from 'node:crypto';
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { chmodSync, statSync } from 'node:fs';
+import { chmod, readFile, rename, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { loadEnvFile } from 'node:process';
 
@@ -288,6 +289,11 @@ async function readConfig(
   allowMissing: boolean,
 ): Promise<LeadDocketMockServerConfig> {
   try {
+    if (process.platform !== 'win32' && resolve(configPath) === resolve(DEFAULT_CONFIG_PATH)) {
+      await chmod(configPath, 0o600).catch((error) => {
+        if (!isFileNotFound(error)) throw error;
+      });
+    }
     const contents = await readFile(configPath, 'utf8');
     const value: unknown = JSON.parse(contents);
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -312,13 +318,17 @@ async function readConfig(
 
 async function writeConfig(configPath: string, config: LeadDocketMockServerConfig): Promise<void> {
   const absolutePath = resolve(configPath);
-  const temporaryPath = `${absolutePath}.${process.pid}.tmp`;
+  const temporaryPath = `${absolutePath}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
   await rename(temporaryPath, absolutePath);
 }
 
 function loadDevVars(path = '.dev.vars'): void {
   try {
+    if (process.platform !== 'win32') {
+      const mode = statSync(path).mode & 0o777;
+      if ((mode & 0o077) !== 0) chmodSync(path, 0o600);
+    }
     loadEnvFile(path);
   } catch (error) {
     if (!isFileNotFound(error)) {

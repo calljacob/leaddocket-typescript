@@ -271,7 +271,13 @@ describe('live Lead Docket reference-data discovery', () => {
       Data: { Id: 1, Status: 'New' },
     });
     expect(await (await mock.fetch('/api/leads/forms')).json()).toEqual([
-      { IsValid: true, Data: expect.objectContaining({ LeadFormId: 4 }) },
+      expect.objectContaining({
+        Error: null,
+        IsValid: true,
+        Data: expect.objectContaining({ LeadFormId: 4 }),
+        Actions: [],
+        Links: [],
+      }),
     ]);
   });
 });
