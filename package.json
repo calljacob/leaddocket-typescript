@@ -2,29 +2,65 @@
   "name": "@calljacob/leaddocket-typescript",
   "version": "1.1.0",
   "description": "A strongly-typed API client library for Lead Docket, automatically generated from the official OpenAPI schema.",
-  "main": "dist/index.js",
-  "module": "dist/index.mjs",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./mock/server": {
+      "import": {
+        "types": "./dist/mock/server.d.mts",
+        "default": "./dist/mock/server.mjs"
+      },
+      "require": {
+        "types": "./dist/mock/server.d.cts",
+        "default": "./dist/mock/server.cjs"
+      }
+    },
+    "./mock/faker": {
+      "import": {
+        "types": "./dist/mock/faker.d.mts",
+        "default": "./dist/mock/faker.mjs"
+      },
+      "require": {
+        "types": "./dist/mock/faker.d.cts",
+        "default": "./dist/mock/faker.cjs"
+      }
     }
+  },
+  "bin": {
+    "leaddocket-mock": "./dist/mock/cli.cjs"
   },
   "files": [
     "dist",
     "CHANGELOG.md",
-    "NOTICE.md"
+    "NOTICE.md",
+    ".dev.vars.example",
+    "examples",
+    "leaddocket.mock.example.json"
   ],
   "sideEffects": false,
   "scripts": {
-    "prepublishOnly": "npm run build",
-    "test": "vitest run",
-    "build": "tsup",
-    "lint": "eslint .",
-    "format": "prettier --write .",
-    "commitlint": "vite-plus-commitlint"
+    "prepublishOnly": "vp pack",
+    "test": "vp test",
+    "build": "vp pack",
+    "check": "vp check",
+    "lint": "vp lint",
+    "format": "vp fmt",
+    "sanitize:webhook-examples": "node scripts/sanitize-webhook-examples.mjs",
+    "check:webhook-examples": "node scripts/sanitize-webhook-examples.mjs --check",
+    "mock": "vp pack && node dist/mock/cli.cjs",
+    "commitlint": "vite-plus-commitlint",
+    "prepare": "vp config"
   },
   "repository": {
     "type": "git",
@@ -55,26 +91,20 @@
   "publishConfig": {
     "access": "public"
   },
-  "overrides": {
-    "esbuild": "^0.28.1"
-  },
   "bugs": {
     "url": "https://github.com/calljacob/leaddocket-typescript/issues"
   },
   "homepage": "https://github.com/calljacob/leaddocket-typescript#readme",
+  "dependencies": {
+    "@faker-js/faker": "10.6.0",
+    "swagger-ui-dist": "5.32.15"
+  },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@types/node": "^26.1.2",
-    "eslint": "^10.8.0",
-    "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-prettier": "^5.5.6",
-    "prettier": "^3.9.6",
-    "tsup": "^8.5.1",
+    "@types/node": "^24.13.4",
     "typescript": "~7.0.2",
-    "typescript-eslint": "^8.66.0",
-    "vite-plus": "^0.2.8",
-    "vite-plus-commitlint": "^1.1.3",
-    "vitest": "^4.1.10"
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vite-plus-commitlint": "^1.1.3"
   },
   "packageManager": "pnpm@11.20.0"
 }

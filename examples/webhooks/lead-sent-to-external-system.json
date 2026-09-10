@@ -1,0 +1,10 @@
+{
+  "hostname": "mock.leaddocket.local",
+  "EventType": "Lead Sent to External System",
+  "EventTypeId": 25,
+  "EventByUser": null,
+  "Id": 9007,
+  "Code": "MOCK-CODE",
+  "_request_path": "/webhooks/lead-docket",
+  "_request_type_param": null
+}

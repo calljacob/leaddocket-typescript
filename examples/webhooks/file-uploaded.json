@@ -1,0 +1,21 @@
+{
+  "hostname": "mock.leaddocket.local",
+  "EventType": "File Uploaded",
+  "EventTypeId": 15,
+  "ContactId": 1001,
+  "ContactFirstName": "Ada",
+  "ContactMiddleName": null,
+  "ContactLastName": "Lovelace",
+  "ContactFullName": "Ada Lovelace",
+  "LeadId": 2001,
+  "LeadCode": null,
+  "LeadCaseType": "Example Case Type",
+  "LeadCaseTypeCode": "Example Case Type",
+  "FileName": "example-document.pdf",
+  "Extension": ".png",
+  "FileUrl": "https://files.example.test/mock/example-document.pdf",
+  "DecodedFileUrl": "https://files.example.test/mock/example-document.pdf",
+  "FileCategory": "Documents",
+  "_request_path": "/webhooks/lead-docket",
+  "_request_type_param": null
+}

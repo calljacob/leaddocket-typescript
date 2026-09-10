@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import {
   client,
   contactCustomFieldsGet,
@@ -43,7 +43,9 @@ describe('Lead Docket mock API', () => {
   it('can back the generated SDK and emit API-driven webhooks', async () => {
     const mock = createLeadDocketMockApi();
     const webhookEvents: string[] = [];
-    mock.onWebhook((event) => webhookEvents.push(event.event));
+    mock.onWebhook((event) => {
+      webhookEvents.push(event.event);
+    });
 
     client.setConfig({
       baseUrl: mock.baseUrl,
@@ -77,7 +79,13 @@ describe('Lead Docket mock API', () => {
         contacts: [{ Id: 1, FirstName: 'Ada', LastName: 'Lovelace', Code: 'ADA' }],
         contactCustomFields: [
           { Id: 101, FieldName: 'Preferred Language', Location: 'Contact', FieldType: 'Text' },
-          { Id: 102, FieldName: 'VIP', Location: 'Contact', FieldType: 'TrueFalse', defaultValue: false },
+          {
+            Id: 102,
+            FieldName: 'VIP',
+            Location: 'Contact',
+            FieldType: 'TrueFalse',
+            defaultValue: false,
+          },
         ],
         customFieldValues: {
           contacts: {
@@ -92,7 +100,11 @@ describe('Lead Docket mock API', () => {
     client.setConfig({ baseUrl: mock.baseUrl, fetch: mock.fetch });
 
     const fieldList = await contactCustomFieldsGet();
-    expect(fieldList.data).toEqual(expect.arrayContaining([expect.objectContaining({ Id: 101, FieldName: 'Preferred Language' })]));
+    expect(fieldList.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ Id: 101, FieldName: 'Preferred Language' }),
+      ]),
+    );
 
     const contact = await contactsGetById({ path: { id: 1 } });
     expect(contact.data).toMatchObject({
@@ -120,7 +132,9 @@ describe('Lead Docket mock API', () => {
     const mock = createLeadDocketMockApi({
       seed: {
         leads: [{ Id: 10, FirstName: 'Grace', LastName: 'Hopper', Code: 'LEAD-10' }],
-        customFields: [{ Id: 201, FieldName: 'Estimated Case Value', Location: 'Lead', FieldType: 'Currency' }],
+        customFields: [
+          { Id: 201, FieldName: 'Estimated Case Value', Location: 'Lead', FieldType: 'Currency' },
+        ],
         customFieldValues: {
           leads: {
             10: {
@@ -134,7 +148,11 @@ describe('Lead Docket mock API', () => {
     client.setConfig({ baseUrl: mock.baseUrl, fetch: mock.fetch });
 
     const definitions = await customFieldsGet();
-    expect(definitions.data).toEqual(expect.arrayContaining([expect.objectContaining({ Id: 201, FieldName: 'Estimated Case Value' })]));
+    expect(definitions.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ Id: 201, FieldName: 'Estimated Case Value' }),
+      ]),
+    );
 
     const lead = await leadsGetById({ path: { id: 10 } });
     expect(lead.data).toMatchObject({
@@ -145,7 +163,11 @@ describe('Lead Docket mock API', () => {
     await leadsPutUpdateCustomField({ query: { id: 201, leadId: 10, value: '7500' } });
 
     const field = await leadsGetCustomField({ query: { id: 201, leadId: 10 } });
-    expect(field.data).toMatchObject({ CustomFieldId: 201, Name: 'Estimated Case Value', Value: '7500' });
+    expect(field.data).toMatchObject({
+      CustomFieldId: 201,
+      Name: 'Estimated Case Value',
+      Value: '7500',
+    });
 
     const updated = await leadsGetById({ path: { id: 10 } });
     expect(updated.data).toMatchObject({
@@ -156,7 +178,12 @@ describe('Lead Docket mock API', () => {
   it('filters webhook subscriptions and supports unsubscribe', async () => {
     const mock = createLeadDocketMockApi();
     const received: string[] = [];
-    const unsubscribe = mock.onWebhook((event) => received.push(event.event), ['contact.*']);
+    const unsubscribe = mock.onWebhook(
+      (event) => {
+        received.push(event.event);
+      },
+      ['contact.*'],
+    );
 
     await mock.emitWebhook({ event: 'contact.created', entity: 'contact', action: 'created' });
     await mock.emitWebhook({ event: 'lead.created', entity: 'lead', action: 'created' });
@@ -164,7 +191,11 @@ describe('Lead Docket mock API', () => {
     await mock.emitWebhook({ event: 'contact.updated', entity: 'contact', action: 'updated' });
 
     expect(received).toEqual(['contact.created']);
-    expect(mock.getWebhookEvents().map((event) => event.event)).toEqual(['contact.created', 'lead.created', 'contact.updated']);
+    expect(mock.getWebhookEvents().map((event) => event.event)).toEqual([
+      'contact.created',
+      'lead.created',
+      'contact.updated',
+    ]);
   });
 
   it('tracks and clears request history and can reset seeded state', async () => {
@@ -188,7 +219,9 @@ describe('Lead Docket mock API', () => {
     mock.reset({ contacts: [{ Id: 9, FirstName: 'Reset', LastName: 'Contact' }] });
     expect(mock.getRequests()).toHaveLength(0);
     expect(mock.getWebhookEvents()).toHaveLength(0);
-    expect(mock.getStore('contacts')).toEqual([expect.objectContaining({ Id: 9, FirstName: 'Reset' })]);
+    expect(mock.getStore('contacts')).toEqual([
+      expect.objectContaining({ Id: 9, FirstName: 'Reset' }),
+    ]);
   });
 
   it('returns a useful 404 response for unknown routes', async () => {
@@ -198,14 +231,43 @@ describe('Lead Docket mock API', () => {
     const body = await response.json();
 
     expect(response.status).toBe(404);
-    expect(body).toMatchObject({ message: 'No Lead Docket mock route found for GET /api/not-a-real-route' });
+    expect(body).toMatchObject({
+      message: 'No Lead Docket mock route found for GET /api/not-a-real-route',
+    });
     expect(body.knownRoutes).toContain('GET /api/contacts/{id}');
+  });
+
+  it('records webhook failures without failing the originating API operation', async () => {
+    const mock = createLeadDocketMockApi({
+      webhookSubscriptions: [{ url: 'https://webhook.example.test', events: ['contact.*'] }],
+      webhookFetch: async () => new Response(null, { status: 500 }),
+    });
+
+    client.setConfig({ baseUrl: mock.baseUrl, fetch: mock.fetch });
+    const response = await contactsAdd({
+      body: { firstName: 'Delivery', lastName: 'Failure' } as never,
+    });
+
+    expect(response.error).toBeUndefined();
+    expect(mock.getWebhookDeliveries()).toEqual([
+      expect.objectContaining({
+        target: 'https://webhook.example.test',
+        kind: 'http',
+        ok: false,
+        status: 500,
+      }),
+    ]);
   });
 
   it('supports manually emitted non-API webhooks', async () => {
     const mock = createLeadDocketMockApi();
     const received: string[] = [];
-    mock.onWebhook((event) => received.push(event.event), ['lead.status_changed']);
+    mock.onWebhook(
+      (event) => {
+        received.push(event.event);
+      },
+      ['lead.status_changed'],
+    );
 
     await mock.emitWebhook({
       event: 'lead.status_changed',

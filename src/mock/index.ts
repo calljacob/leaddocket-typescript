@@ -1,3 +1,8 @@
+import {
+  createOpportunityIntegrationForms,
+  type MockOpportunityIntegration,
+  type OpportunityIntegrationForms,
+} from './integrations';
 import { mockComponentSchemas } from './schemas.gen';
 import { mockRouteDefinitions, type MockRouteDefinition } from './routes.gen';
 
@@ -35,6 +40,18 @@ export type MockWebhookEvent = {
 };
 
 export type MockWebhookHandler = (event: MockWebhookEvent) => void | Promise<void>;
+
+export type MockWebhookDelivery = {
+  id: string;
+  eventId: string;
+  target: string;
+  kind: 'handler' | 'http';
+  attemptedAt: string;
+  durationMs: number;
+  ok: boolean;
+  status?: number;
+  error?: string;
+};
 
 export type MockWebhookSubscription = {
   url?: string;
@@ -74,7 +91,9 @@ export type MockCustomFieldDefinition = Record<string, unknown> & {
 
 export type MockCustomFieldValueMap = Record<string, unknown>;
 
-export type MockCustomFieldValues = Partial<Record<MockCustomFieldResource, Record<string, MockCustomFieldValueMap>>>;
+export type MockCustomFieldValues = Partial<
+  Record<MockCustomFieldResource, Record<string, MockCustomFieldValueMap>>
+>;
 
 type LeadDocketMockStores = {
   contacts: Array<Record<string, unknown>>;
@@ -108,6 +127,9 @@ export type LeadDocketMockApiOptions = {
   seed?: LeadDocketMockSeed;
   webhookSubscriptions?: MockWebhookSubscription[];
   deliverWebhooks?: boolean;
+  webhookFetch?: typeof fetch;
+  webhookTimeoutMs?: number;
+  opportunityIntegrations?: MockOpportunityIntegration[];
   latencyMs?: number;
 };
 
@@ -131,9 +153,10 @@ type RequestHandlerContext = NormalizedRequest & RouteMatch;
 
 const JSON_HEADERS = { 'content-type': 'application/json' };
 const ALL_ROUTES = [...mockRouteDefinitions];
-const ROUTE_MATCHERS = ALL_ROUTES.map((route) => ({ route, matcher: createPathMatcher(route.path) })).sort(
-  (a, b) => routeSpecificity(b.route.path) - routeSpecificity(a.route.path),
-);
+const ROUTE_MATCHERS = ALL_ROUTES.map((route) => ({
+  route,
+  matcher: createPathMatcher(route.path),
+})).sort((a, b) => routeSpecificity(b.route.path) - routeSpecificity(a.route.path));
 
 const DEFAULT_BASE_URL = 'https://mock.leaddocket.local';
 
@@ -158,8 +181,6 @@ const STORE_TO_ENTITY: Record<MockStoreName, string> = {
   contactCustomFields: 'contactCustomField',
 };
 
-
-
 export class LeadDocketMockApi {
   readonly baseUrl: string;
   readonly fetch: typeof fetch;
@@ -168,23 +189,33 @@ export class LeadDocketMockApi {
   private readonly routes = ALL_ROUTES;
   private readonly requests: MockApiRequest[] = [];
   private readonly webhookEvents: MockWebhookEvent[] = [];
+  private readonly webhookDeliveries: MockWebhookDelivery[] = [];
   private readonly subscriptions: MockWebhookSubscription[] = [];
   private readonly deliverWebhooks: boolean;
+  private readonly webhookFetch: typeof fetch;
+  private readonly webhookTimeoutMs: number;
   private readonly latencyMs: number;
+  private integrationForms: OpportunityIntegrationForms;
   private readonly stores: Record<MockStoreName, Array<Record<string, unknown>>>;
-  private customFieldValues: Record<MockCustomFieldResource, Record<string, MockCustomFieldValueMap>>;
+  private customFieldValues: Record<
+    MockCustomFieldResource,
+    Record<string, MockCustomFieldValueMap>
+  >;
   private lookups: Record<string, unknown>;
   private settings: Record<string, unknown>;
 
   constructor(options: LeadDocketMockApiOptions = {}) {
     this.baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
     this.deliverWebhooks = options.deliverWebhooks ?? true;
+    this.webhookFetch = options.webhookFetch ?? globalThis.fetch;
+    this.webhookTimeoutMs = options.webhookTimeoutMs ?? 10_000;
     this.latencyMs = options.latencyMs ?? 0;
     this.stores = createDefaultStores();
     this.customFieldValues = createEmptyCustomFieldValues();
     this.lookups = defaultLookups();
     this.settings = defaultSettings();
     this.fetch = this.handleFetch.bind(this) as typeof fetch;
+    this.integrationForms = this.createIntegrationForms(options.opportunityIntegrations ?? []);
 
     this.seed(options.seed);
 
@@ -195,6 +226,21 @@ export class LeadDocketMockApi {
 
   get routeDefinitions(): readonly MockRouteDefinition[] {
     return this.routes;
+  }
+
+  getOpportunityIntegrations() {
+    return structuredCloneCompat(this.integrationForms.summaries);
+  }
+
+  setOpportunityIntegrations(integrations: MockOpportunityIntegration[]): void {
+    this.integrationForms = this.createIntegrationForms(integrations);
+  }
+
+  getOpportunityIntegrationUrl(
+    id: string | number,
+    options: { preview?: boolean } = {},
+  ): string | undefined {
+    return this.integrationForms.accessUrl(this.baseUrl, String(id), options.preview);
   }
 
   getRequests(): MockApiRequest[] {
@@ -211,6 +257,14 @@ export class LeadDocketMockApi {
 
   clearWebhookEvents(): void {
     this.webhookEvents.length = 0;
+  }
+
+  getWebhookDeliveries(): MockWebhookDelivery[] {
+    return structuredCloneCompat(this.webhookDeliveries);
+  }
+
+  clearWebhookDeliveries(): void {
+    this.webhookDeliveries.length = 0;
   }
 
   addWebhookSubscription(subscription: MockWebhookSubscription): () => void {
@@ -239,7 +293,10 @@ export class LeadDocketMockApi {
     }
 
     if (seed.customFieldValues) {
-      this.customFieldValues = mergeCustomFieldValues(this.customFieldValues, seed.customFieldValues);
+      this.customFieldValues = mergeCustomFieldValues(
+        this.customFieldValues,
+        seed.customFieldValues,
+      );
     }
 
     if (seed.lookups) {
@@ -255,6 +312,7 @@ export class LeadDocketMockApi {
     this.nextId = 1000;
     this.requests.length = 0;
     this.webhookEvents.length = 0;
+    this.webhookDeliveries.length = 0;
     const defaults = createDefaultStores();
     for (const store of Object.keys(defaults) as MockStoreName[]) {
       this.stores[store] = defaults[store];
@@ -273,11 +331,18 @@ export class LeadDocketMockApi {
     this.stores[store] = records.map((record) => normalizeRecord(record, () => this.allocateId()));
   }
 
-  setCustomFieldValues(resource: MockCustomFieldResource, recordId: string | number, values: MockCustomFieldValueMap): void {
+  setCustomFieldValues(
+    resource: MockCustomFieldResource,
+    recordId: string | number,
+    values: MockCustomFieldValueMap,
+  ): void {
     this.customFieldValues[resource][String(recordId)] = structuredCloneCompat(values);
   }
 
-  getCustomFieldValues(resource: MockCustomFieldResource, recordId: string | number): MockCustomFieldValueMap {
+  getCustomFieldValues(
+    resource: MockCustomFieldResource,
+    recordId: string | number,
+  ): MockCustomFieldValueMap {
     return structuredCloneCompat(this.customFieldValues[resource][String(recordId)] ?? {});
   }
 
@@ -297,14 +362,75 @@ export class LeadDocketMockApi {
     return webhookEvent;
   }
 
+  private createIntegrationForms(
+    integrations: MockOpportunityIntegration[],
+  ): OpportunityIntegrationForms {
+    return createOpportunityIntegrationForms({
+      integrations,
+      recordRequest: (request) => {
+        this.requests.push({
+          id: `req_${this.allocateId()}`,
+          at: new Date().toISOString(),
+          ...request,
+        });
+      },
+      submit: async ({ integration, opportunity, customFields, request }) => {
+        const id = this.allocateId();
+        const createdDate = new Date().toISOString();
+        const firstName = typeof opportunity.FirstName === 'string' ? opportunity.FirstName : '';
+        const lastName = typeof opportunity.LastName === 'string' ? opportunity.LastName : '';
+        const created = {
+          ...opportunity,
+          Id: id,
+          id,
+          opportunityId: id,
+          OpportunityName: `${firstName} ${lastName}`.trim() || `Opportunity ${id}`,
+          name: `${firstName} ${lastName}`.trim() || `Opportunity ${id}`,
+          Status: 'Open',
+          status: 'Open',
+          CreatedDate: createdDate,
+          createdDate,
+          Processed: false,
+          processed: false,
+          IsBeingEdited: false,
+          isBeingEdited: false,
+          OpportunityTypeId: opportunity.OpportunityTypeId ?? 'WebForm',
+          IntegrationId: String(integration.id),
+          CustomFields: customFields,
+        };
+        this.stores.opportunities.push(created);
+        this.captureRecordCustomFields('opportunities', created);
+        const hydrated = this.withCustomFields('opportunities', created);
+        await this.emitWebhook({
+          event: 'opportunity.created',
+          entity: 'opportunity',
+          action: 'created',
+          apiCallDriven: false,
+          operationId: request.operationId,
+          method: request.method,
+          path: request.path,
+          pathParams: request.pathParams,
+          query: request.query,
+          requestBody: request.body,
+          data: hydrated,
+        });
+        return hydrated;
+      },
+    });
+  }
+
   private async handleFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     if (this.latencyMs > 0) {
       await delay(this.latencyMs);
     }
 
     const normalized = await normalizeRequest(input, init, this.baseUrl);
-    const match = matchRoute(normalized.method, normalized.path);
+    const integrationResponse = await this.integrationForms.handle(normalized);
+    if (integrationResponse) {
+      return integrationResponse;
+    }
 
+    const match = matchRoute(normalized.method, normalized.path);
     if (!match) {
       return jsonResponse(
         {
@@ -353,9 +479,9 @@ export class LeadDocketMockApi {
 
     if (path.includes('/api/lookups')) {
       if (path.includes('gettypes')) {
-        return Object.keys(this.lookups);
+        return Object.keys(this.lookups).filter((type) => type !== 'ReferralPracticeAreas');
       }
-      return this.lookups;
+      return lookupByType(this.lookups, ctx.query.type);
     }
 
     if (path.includes('/api/customfields')) {
@@ -398,6 +524,10 @@ export class LeadDocketMockApi {
       return this.handleCollection(ctx, 'leadRoles');
     }
 
+    if (operation.startsWith('leadforms_')) {
+      return this.handleLeadFormRoutes(ctx);
+    }
+
     if (path.includes('/api/leads')) {
       return this.handleLeadRoutes(ctx);
     }
@@ -410,8 +540,12 @@ export class LeadDocketMockApi {
       return this.handleCollection(ctx, 'tasks');
     }
 
-    if (path.includes('/api/referralgroups')) {
-      return this.handleCollection(ctx, 'referralGroups');
+    if (operation.includes('referralgroups_getlist')) {
+      return this.stores.referralGroups;
+    }
+
+    if (operation.includes('referrals_practiceareas')) {
+      return lookupByType(this.lookups, 'ReferralPracticeAreas');
     }
 
     if (path.includes('/api/referrals')) {
@@ -426,16 +560,12 @@ export class LeadDocketMockApi {
       return this.handleCollection(ctx, 'expenses');
     }
 
+    if (path.includes('/substatus') || tag === 'substatuses') {
+      return this.handleSubstatusRoutes(ctx);
+    }
+
     if (path.includes('/api/statuses') || tag === 'statuses') {
-      return this.handleCollection(ctx, 'statuses');
-    }
-
-    if (path.includes('/api/substatus') || tag === 'substatuses') {
-      return this.handleCollection(ctx, 'substatuses');
-    }
-
-    if (path.includes('/api/leadforms')) {
-      return this.handleCollection(ctx, 'leadForms');
+      return this.handleStatusRoutes(ctx);
     }
 
     if (path.includes('/api/messages')) {
@@ -446,11 +576,68 @@ export class LeadDocketMockApi {
       return this.handleCollection(ctx, 'externalCalls');
     }
 
-    if (operation.includes('download') || operation.includes('recording') || operation.includes('transcription')) {
+    if (
+      operation.includes('download') ||
+      operation.includes('recording') ||
+      operation.includes('transcription')
+    ) {
       return sampleFromSchema(ctx.route.responseSchema);
     }
 
     return sampleFromSchema(ctx.route.responseSchema);
+  }
+
+  private handleLeadFormRoutes(ctx: RequestHandlerContext): unknown {
+    if (ctx.method === 'GET') {
+      const id = ctx.pathParams.id;
+      if (id) {
+        const form = findByAnyId(this.stores.leadForms, id);
+        return { IsValid: Boolean(form), Data: form };
+      }
+      return this.stores.leadForms.map((form) => ({ IsValid: true, Data: form }));
+    }
+    const result = this.handleCollection(ctx, 'leadForms');
+    return { IsValid: true, Data: result };
+  }
+
+  private handleStatusRoutes(ctx: RequestHandlerContext): unknown {
+    if (ctx.method === 'GET') {
+      const id = ctx.pathParams.id;
+      if (id) {
+        const status = findByAnyId(this.stores.statuses, id);
+        return { IsValid: Boolean(status), Data: status };
+      }
+      return {
+        IsValid: true,
+        Data: this.stores.statuses.map((status) => ({ IsValid: true, Data: status })),
+      };
+    }
+    const result = this.handleCollection(ctx, 'statuses');
+    return { IsValid: true, Data: result };
+  }
+
+  private handleSubstatusRoutes(ctx: RequestHandlerContext): unknown {
+    const collection = this.stores.substatuses;
+    const body = asRecord(ctx.body);
+    const statusId = ctx.pathParams.statusId;
+    const subStatusId = ctx.pathParams.subStatusId;
+    if (ctx.method === 'POST') {
+      const created = normalizeRecord({ ...body, StatusId: numberOrString(statusId) }, () =>
+        this.allocateId(),
+      );
+      collection.push(created);
+      return { IsValid: true, Data: created };
+    }
+    if (ctx.method === 'PATCH' || ctx.method === 'PUT') {
+      const updated = upsertById(collection, subStatusId, body);
+      return { IsValid: true, Data: updated };
+    }
+    if (ctx.method === 'DELETE') {
+      const index = collection.findIndex((record) => idMatches(record, subStatusId ?? ''));
+      if (index >= 0) collection.splice(index, 1);
+      return { IsValid: true, Data: { success: true } };
+    }
+    return { IsValid: true, Data: collection };
   }
 
   private handleLeadRoutes(ctx: RequestHandlerContext): unknown {
@@ -478,31 +665,71 @@ export class LeadDocketMockApi {
   private handleCollection(ctx: RequestHandlerContext, store: MockStoreName): unknown {
     const collection = this.stores[store];
     const body = asRecord(ctx.body);
-    const id = firstDefinedPathParam(ctx.pathParams, ['id', 'leadId', 'contactId', 'opportunityId', 'taskId', 'referralId', 'statusId', 'subStatusId', 'settlementId', 'expenseId', 'formId', 'externalCallId']);
+    const id = firstDefinedPathParam(ctx.pathParams, [
+      'id',
+      'leadId',
+      'contactId',
+      'opportunityId',
+      'taskId',
+      'referralId',
+      'statusId',
+      'subStatusId',
+      'settlementId',
+      'expenseId',
+      'formId',
+      'externalCallId',
+    ]);
     const operation = ctx.route.operationId.toLowerCase();
 
     if (ctx.method === 'GET') {
-      if (operation.includes('list') || operation.includes('search') || operation.includes('since') || operation.includes('all') || operation.includes('pending') || operation.includes('unprocessed') || !id) {
-        return maybePagedResponse(ctx.route.responseSchema, this.withCustomFieldsForStore(store, collection));
+      if (
+        operation.includes('list') ||
+        operation.includes('search') ||
+        operation.includes('since') ||
+        operation.includes('all') ||
+        operation.includes('pending') ||
+        operation.includes('unprocessed') ||
+        !id
+      ) {
+        return maybePagedResponse(
+          ctx.route.responseSchema,
+          this.withCustomFieldsForStore(store, collection),
+        );
       }
 
-      return this.withCustomFieldsForStore(store, [findByAnyId(collection, id) ?? sampleRecordForStore(store, Number(id) || this.allocateId())])[0];
+      return this.withCustomFieldsForStore(store, [
+        findByAnyId(collection, id) ?? sampleRecordForStore(store, Number(id) || this.allocateId()),
+      ])[0];
     }
 
     if (ctx.method === 'POST') {
       if (operation.includes('appendnote') || ctx.route.path.toLowerCase().includes('/notes')) {
-        return createChildRecord(body, this.allocateId(), { leadId: ctx.pathParams.leadId ?? ctx.pathParams.id });
+        return createChildRecord(body, this.allocateId(), {
+          leadId: ctx.pathParams.leadId ?? ctx.pathParams.id,
+        });
       }
 
-      const created = normalizeRecord(body, () => this.allocateId(), sampleRecordForStore(store, this.allocateId()));
+      const created = normalizeRecord(
+        body,
+        () => this.allocateId(),
+        sampleRecordForStore(store, this.allocateId()),
+      );
       collection.push(created);
       this.captureRecordCustomFields(store, created);
-      return responseForMutation(ctx.route.responseSchema, this.withCustomFieldsForStore(store, [created])[0]);
+      return responseForMutation(
+        ctx.route.responseSchema,
+        this.withCustomFieldsForStore(store, [created])[0],
+      );
     }
 
     if (ctx.method === 'PUT' || ctx.method === 'PATCH') {
       if (operation.includes('markcomplete')) {
-        const task = upsertById(collection, id, { ...body, id: numberOrString(id), completed: true, completedDate: new Date().toISOString() });
+        const task = upsertById(collection, id, {
+          ...body,
+          id: numberOrString(id),
+          completed: true,
+          completedDate: new Date().toISOString(),
+        });
         return responseForMutation(ctx.route.responseSchema, task);
       }
 
@@ -514,7 +741,10 @@ export class LeadDocketMockApi {
 
       const updated = upsertById(collection, id, { ...body, id: numberOrString(id) });
       this.captureRecordCustomFields(store, updated);
-      return responseForMutation(ctx.route.responseSchema, this.withCustomFieldsForStore(store, [updated])[0]);
+      return responseForMutation(
+        ctx.route.responseSchema,
+        this.withCustomFieldsForStore(store, [updated])[0],
+      );
     }
 
     if (ctx.method === 'DELETE') {
@@ -530,7 +760,10 @@ export class LeadDocketMockApi {
     return sampleFromSchema(ctx.route.responseSchema);
   }
 
-  private withCustomFieldsForStore(store: MockStoreName, records: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  private withCustomFieldsForStore(
+    store: MockStoreName,
+    records: Array<Record<string, unknown>>,
+  ): Array<Record<string, unknown>> {
     const resource = customFieldResourceForStore(store);
     if (!resource) {
       return structuredCloneCompat(records);
@@ -539,17 +772,30 @@ export class LeadDocketMockApi {
     return records.map((record) => this.withCustomFields(resource, record));
   }
 
-  private withCustomFields(resource: MockCustomFieldResource, record: Record<string, unknown>): Record<string, unknown> {
+  private withCustomFields(
+    resource: MockCustomFieldResource,
+    record: Record<string, unknown>,
+  ): Record<string, unknown> {
     const cloned = structuredCloneCompat(record);
     const recordId = getRecordIdentifier(cloned);
-    const explicitValues = recordId === undefined ? {} : this.customFieldValues[resource][String(recordId)] ?? {};
+    const explicitValues =
+      recordId === undefined ? {} : (this.customFieldValues[resource][String(recordId)] ?? {});
     const existingValues = customFieldArrayToValueMap(cloned.CustomFields ?? cloned.customFields);
     const values = { ...existingValues, ...explicitValues };
     const definitions = this.customFieldDefinitionsForResource(resource);
-    const customFields = definitions.map((definition) => customFieldValueForDefinition(definition, values));
+    const customFields = definitions.map((definition) =>
+      customFieldValueForDefinition(definition, values),
+    );
     const unknownValues = Object.entries(values)
-      .filter(([key]) => !definitions.some((definition) => customFieldDefinitionMatchesKey(definition, key)))
-      .map(([key, value]) => ({ CustomFieldId: numericIdOrUndefined(key), Name: key, Value: stringifyCustomFieldValue(value) }));
+      .filter(
+        ([key]) =>
+          !definitions.some((definition) => customFieldDefinitionMatchesKey(definition, key)),
+      )
+      .map(([key, value]) => ({
+        CustomFieldId: numericIdOrUndefined(key),
+        Name: key,
+        Value: stringifyCustomFieldValue(value),
+      }));
 
     cloned.CustomFields = [...customFields, ...unknownValues];
     return cloned;
@@ -571,7 +817,9 @@ export class LeadDocketMockApi {
     }
   }
 
-  private customFieldDefinitionsForResource(resource: MockCustomFieldResource): MockCustomFieldDefinition[] {
+  private customFieldDefinitionsForResource(
+    resource: MockCustomFieldResource,
+  ): MockCustomFieldDefinition[] {
     if (resource === 'contacts') {
       return this.stores.contactCustomFields as MockCustomFieldDefinition[];
     }
@@ -584,17 +832,33 @@ export class LeadDocketMockApi {
     return definitions.filter((definition) => normalizeLocation(definition) !== 'opportunity');
   }
 
-  private handleCustomFieldsUpdate(ctx: RequestHandlerContext, resource: MockCustomFieldResource): unknown {
+  private handleCustomFieldsUpdate(
+    ctx: RequestHandlerContext,
+    resource: MockCustomFieldResource,
+  ): unknown {
     const body = asRecord(ctx.body);
-    const recordId = body.Id ?? body.id ?? body.LeadId ?? body.leadId ?? body.ContactId ?? body.contactId ?? body.Code ?? body.code;
+    const recordId =
+      body.Id ??
+      body.id ??
+      body.LeadId ??
+      body.leadId ??
+      body.ContactId ??
+      body.contactId ??
+      body.Code ??
+      body.code;
     if (recordId === undefined) {
       return { success: false, message: 'Mock custom field update requires Id or Code.' };
     }
 
+    const recordKey = stringifyPropertyKey(recordId);
+    if (recordKey === undefined) {
+      return { success: false, message: 'Mock custom field update requires a valid Id or Code.' };
+    }
+
     const values = customFieldArrayToValueMap(body.CustomFields ?? body.customFields);
     const store = storeForCustomFieldResource(resource);
-    const record = findByAnyId(this.stores[store], String(recordId));
-    const valueKey = String(record ? getRecordIdentifier(record) : recordId);
+    const record = findByAnyId(this.stores[store], recordKey);
+    const valueKey = String(record ? (getRecordIdentifier(record) ?? recordKey) : recordKey);
     this.customFieldValues[resource][valueKey] = {
       ...this.customFieldValues[resource][valueKey],
       ...values,
@@ -604,14 +868,23 @@ export class LeadDocketMockApi {
       Object.assign(record, this.withCustomFields(resource, record));
     }
 
-    return { success: true, CustomFields: this.withCustomFields(resource, { id: valueKey }).CustomFields };
+    return {
+      success: true,
+      CustomFields: this.withCustomFields(resource, { id: valueKey }).CustomFields,
+    };
   }
 
-  private handleSingleCustomFieldUpdate(ctx: RequestHandlerContext, resource: MockCustomFieldResource): unknown {
+  private handleSingleCustomFieldUpdate(
+    ctx: RequestHandlerContext,
+    resource: MockCustomFieldResource,
+  ): unknown {
     const recordId = ctx.query.leadId;
     const fieldId = ctx.query.id;
     if (recordId === undefined || fieldId === undefined) {
-      return { success: false, message: 'Mock custom field update requires leadId and id query parameters.' };
+      return {
+        success: false,
+        message: 'Mock custom field update requires leadId and id query parameters.',
+      };
     }
 
     this.customFieldValues[resource][String(recordId)] = {
@@ -622,13 +895,19 @@ export class LeadDocketMockApi {
     return { success: true, CustomFieldId: Number(fieldId), Value: ctx.query.value };
   }
 
-  private getCustomFieldValue(resource: MockCustomFieldResource, recordId: string | undefined, fieldId: string | undefined): unknown {
+  private getCustomFieldValue(
+    resource: MockCustomFieldResource,
+    recordId: string | undefined,
+    fieldId: string | undefined,
+  ): unknown {
     if (recordId === undefined || fieldId === undefined) {
       return undefined;
     }
 
     const values = this.customFieldValues[resource][String(recordId)] ?? {};
-    const definition = this.customFieldDefinitionsForResource(resource).find((candidate) => customFieldDefinitionMatchesKey(candidate, fieldId));
+    const definition = this.customFieldDefinitionsForResource(resource).find((candidate) =>
+      customFieldDefinitionMatchesKey(candidate, fieldId),
+    );
     const value = getCustomFieldMapValue(values, definition, fieldId);
 
     return {
@@ -666,26 +945,76 @@ export class LeadDocketMockApi {
       return;
     }
 
-    await Promise.all(
-      this.subscriptions
-        .filter((subscription) => !subscription.events || subscription.events.includes(event.event) || subscription.events.includes(`${event.entity}.*`) || subscription.events.includes('*'))
-        .map(async (subscription) => {
-          if (subscription.handler) {
-            await subscription.handler(structuredCloneCompat(event));
-          }
-
-          if (subscription.url) {
-            await globalThis.fetch(subscription.url, {
-              method: 'POST',
-              headers: {
-                ...JSON_HEADERS,
-                ...headersToObject(subscription.headers),
-              },
-              body: JSON.stringify(event),
-            });
-          }
-        }),
+    const subscriptions = this.subscriptions.filter(
+      (subscription) =>
+        !subscription.events ||
+        subscription.events.includes(event.event) ||
+        subscription.events.includes(`${event.entity}.*`) ||
+        subscription.events.includes('*'),
     );
+
+    await Promise.all(
+      subscriptions.flatMap((subscription) => {
+        const deliveries: Array<Promise<void>> = [];
+        if (subscription.handler) {
+          deliveries.push(
+            this.recordWebhookDelivery(event, 'handler', 'in-process handler', async () => {
+              await subscription.handler?.(structuredCloneCompat(event));
+            }),
+          );
+        }
+        if (subscription.url) {
+          deliveries.push(
+            this.recordWebhookDelivery(event, 'http', subscription.url, async () => {
+              return this.webhookFetch(subscription.url!, {
+                method: 'POST',
+                headers: {
+                  ...JSON_HEADERS,
+                  ...headersToObject(subscription.headers),
+                },
+                body: JSON.stringify(event),
+                signal: AbortSignal.timeout(this.webhookTimeoutMs),
+              });
+            }),
+          );
+        }
+        return deliveries;
+      }),
+    );
+  }
+
+  private async recordWebhookDelivery(
+    event: MockWebhookEvent,
+    kind: MockWebhookDelivery['kind'],
+    target: string,
+    deliver: () => Promise<Response | void>,
+  ): Promise<void> {
+    const startedAt = Date.now();
+    const attemptedAt = new Date(startedAt).toISOString();
+    try {
+      const response = await deliver();
+      this.webhookDeliveries.push({
+        id: `delivery_${this.allocateId()}`,
+        eventId: event.id,
+        target,
+        kind,
+        attemptedAt,
+        durationMs: Date.now() - startedAt,
+        ok: response ? response.ok : true,
+        status: response?.status,
+      });
+    } catch (error) {
+      this.webhookDeliveries.push({
+        id: `delivery_${this.allocateId()}`,
+        eventId: event.id,
+        target,
+        kind,
+        attemptedAt,
+        durationMs: Date.now() - startedAt,
+        ok: false,
+        error: error instanceof Error ? error.message : 'Webhook delivery failed',
+      });
+    }
   }
 
   private allocateId(): number {
@@ -702,9 +1031,19 @@ export function createLeadDocketMockFetch(options?: LeadDocketMockApiOptions): t
   return createLeadDocketMockApi(options).fetch;
 }
 
+export type {
+  MockOpportunityIntegration,
+  MockOpportunityIntegrationField,
+  MockOpportunityIntegrationFieldKey,
+  MockOpportunityIntegrationFieldOption,
+  MockOpportunityIntegrationSummary,
+} from './integrations';
 export { mockRouteDefinitions } from './routes.gen';
 
-function createEmptyCustomFieldValues(): Record<MockCustomFieldResource, Record<string, MockCustomFieldValueMap>> {
+function createEmptyCustomFieldValues(): Record<
+  MockCustomFieldResource,
+  Record<string, MockCustomFieldValueMap>
+> {
   return {
     contacts: {},
     leads: {},
@@ -733,13 +1072,29 @@ function customFieldResourceForStore(store: MockStoreName): MockCustomFieldResou
   return undefined;
 }
 
-function storeForCustomFieldResource(resource: MockCustomFieldResource): 'contacts' | 'leads' | 'opportunities' {
+function storeForCustomFieldResource(
+  resource: MockCustomFieldResource,
+): 'contacts' | 'leads' | 'opportunities' {
   return resource;
 }
 
 function getRecordIdentifier(record: Record<string, unknown>): string | number | undefined {
-  const identifier = record.Id ?? record.id ?? record.ContactId ?? record.contactId ?? record.LeadId ?? record.leadId ?? record.OpportunityId ?? record.opportunityId ?? record.Code ?? record.code;
+  const identifier =
+    record.Id ??
+    record.id ??
+    record.ContactId ??
+    record.contactId ??
+    record.LeadId ??
+    record.leadId ??
+    record.OpportunityId ??
+    record.opportunityId ??
+    record.Code ??
+    record.code;
   return typeof identifier === 'string' || typeof identifier === 'number' ? identifier : undefined;
+}
+
+function stringifyPropertyKey(value: unknown): string | undefined {
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : undefined;
 }
 
 function customFieldArrayToValueMap(value: unknown): MockCustomFieldValueMap {
@@ -752,23 +1107,33 @@ function customFieldArrayToValueMap(value: unknown): MockCustomFieldValueMap {
     const field = asRecord(item);
     const fieldId = field.CustomFieldId ?? field.customFieldId ?? field.Id ?? field.id;
     const name = field.Name ?? field.name ?? field.FieldName ?? field.fieldName;
-    const fieldValue = field.Value ?? field.value ?? field.CustomFieldValue ?? field.customFieldValue;
+    const fieldValue =
+      field.Value ?? field.value ?? field.CustomFieldValue ?? field.customFieldValue;
 
-    if (fieldId !== undefined) {
-      values[String(fieldId)] = fieldValue;
+    const fieldIdKey = stringifyPropertyKey(fieldId);
+    const nameKey = stringifyPropertyKey(name);
+    if (fieldIdKey !== undefined) {
+      values[fieldIdKey] = fieldValue;
     }
-    if (name !== undefined) {
-      values[String(name)] = fieldValue;
+    if (nameKey !== undefined) {
+      values[nameKey] = fieldValue;
     }
   }
 
   return values;
 }
 
-function customFieldValueForDefinition(definition: MockCustomFieldDefinition, values: MockCustomFieldValueMap): Record<string, unknown> {
+function customFieldValueForDefinition(
+  definition: MockCustomFieldDefinition,
+  values: MockCustomFieldValueMap,
+): Record<string, unknown> {
   const id = customFieldId(definition);
   const name = customFieldName(definition);
-  const value = getCustomFieldMapValue(values, definition, String(id ?? name)) ?? definition.defaultValue ?? definition.DefaultValues ?? null;
+  const value =
+    getCustomFieldMapValue(values, definition, String(id ?? name)) ??
+    definition.defaultValue ??
+    definition.DefaultValues ??
+    null;
 
   return {
     CustomFieldId: id,
@@ -777,9 +1142,18 @@ function customFieldValueForDefinition(definition: MockCustomFieldDefinition, va
   };
 }
 
-function getCustomFieldMapValue(values: MockCustomFieldValueMap, definition: MockCustomFieldDefinition | undefined, fallbackKey: string): unknown {
+function getCustomFieldMapValue(
+  values: MockCustomFieldValueMap,
+  definition: MockCustomFieldDefinition | undefined,
+  fallbackKey: string,
+): unknown {
   if (definition) {
-    const keys = [customFieldId(definition), customFieldName(definition), definition.Code, definition.code]
+    const keys = [
+      customFieldId(definition),
+      customFieldName(definition),
+      definition.Code,
+      definition.code,
+    ]
       .filter((key): key is string | number => key !== undefined && key !== null)
       .map(String);
 
@@ -793,7 +1167,10 @@ function getCustomFieldMapValue(values: MockCustomFieldValueMap, definition: Moc
   return values[fallbackKey];
 }
 
-function customFieldDefinitionMatchesKey(definition: MockCustomFieldDefinition, key: string): boolean {
+function customFieldDefinitionMatchesKey(
+  definition: MockCustomFieldDefinition,
+  key: string,
+): boolean {
   return [customFieldId(definition), customFieldName(definition), definition.Code, definition.code]
     .filter((candidate) => candidate !== undefined && candidate !== null)
     .map(String)
@@ -825,7 +1202,23 @@ function stringifyCustomFieldValue(value: unknown): string | null {
   if (value instanceof Date) {
     return value.toISOString();
   }
-  return String(value);
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value) ?? null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return value.toString();
+  }
+  if (typeof value === 'symbol') {
+    return value.description ?? null;
+  }
+  if (typeof value === 'function') {
+    return value.name || null;
+  }
+  return null;
 }
 
 function numericIdOrUndefined(value: string): number | undefined {
@@ -856,22 +1249,29 @@ function createDefaultStores(): Record<MockStoreName, Array<Record<string, unkno
   };
 }
 
+function lookupByType(lookups: Record<string, unknown>, type: string | undefined): unknown {
+  if (!type) return [];
+  const key = Object.keys(lookups).find(
+    (candidate) => candidate.toLowerCase() === type.toLowerCase(),
+  );
+  return key ? structuredCloneCompat(lookups[key]) : [];
+}
+
 function defaultLookups(): Record<string, unknown> {
   return {
-    caseTypes: [{ id: 1, name: 'Personal Injury' }],
-    statuses: [sampleStatus(1)],
-    substatuses: [sampleSubstatus(1)],
-    tags: [{ id: 1, name: 'VIP' }],
-    referralSources: [sampleReferral(1)],
+    LeadSource: [{ Id: 1, Name: 'Example Website' }],
+    CaseType: [{ Id: 1, Name: 'Personal Injury' }],
+    MarketingSource: [{ Id: 1, Name: 'Example Website' }],
+    Statuses: [sampleStatus(1)],
+    Offices: [{ Id: 1, Name: 'Main Office' }],
+    Forms: [{ Id: 1, Name: 'Mock Form' }],
+    Tags: [{ Id: 1, Name: 'VIP' }],
+    ReferralPracticeAreas: ['Personal Injury'],
   };
 }
 
 function defaultSettings(): Record<string, unknown> {
-  return {
-    organizationName: 'Mock Lead Docket',
-    timezone: 'America/New_York',
-    apiMock: true,
-  };
+  return { Name: 'Mock server', IsEnabled: true };
 }
 
 function sampleRecordForStore(store: MockStoreName, id: number): Record<string, unknown> {
@@ -967,11 +1367,32 @@ function sampleUser(id: number): Record<string, unknown> {
 }
 
 function sampleStatus(id: number): Record<string, unknown> {
-  return { id, statusId: id, name: id === 1 ? 'New' : `Status ${id}`, sortOrder: id };
+  const name = id === 1 ? 'New' : `Status ${id}`;
+  return {
+    Id: id,
+    id,
+    statusId: id,
+    Status: name,
+    StatusName: name,
+    name,
+    DisplayOrder: id,
+    sortOrder: id,
+    Substatuses: [sampleSubstatus(id)],
+  };
 }
 
 function sampleSubstatus(id: number): Record<string, unknown> {
-  return { id, subStatusId: id, statusId: 1, name: `Substatus ${id}`, sortOrder: id };
+  return {
+    Id: id,
+    id,
+    subStatusId: id,
+    StatusId: 1,
+    statusId: 1,
+    SubStatusName: `Substatus ${id}`,
+    name: `Substatus ${id}`,
+    DisplayOrder: id,
+    sortOrder: id,
+  };
 }
 
 function sampleReferral(id: number): Record<string, unknown> {
@@ -1022,15 +1443,24 @@ function matchRoute(method: string, path: string): RouteMatch | undefined {
 
     return {
       route,
-      pathParams: Object.fromEntries(matcher.names.map((name, index) => [name, decodeURIComponent(match[index + 1] ?? '')])),
+      pathParams: Object.fromEntries(
+        matcher.names.map((name, index) => [name, decodeURIComponent(match[index + 1] ?? '')]),
+      ),
     };
   }
 
   return undefined;
 }
 
-async function normalizeRequest(input: RequestInfo | URL, init: RequestInit | undefined, baseUrl: string): Promise<NormalizedRequest> {
-  const request = input instanceof Request ? new Request(input, init) : new Request(new URL(String(input), baseUrl), init);
+async function normalizeRequest(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  baseUrl: string,
+): Promise<NormalizedRequest> {
+  const request =
+    input instanceof Request
+      ? new Request(input, init)
+      : new Request(new URL(String(input), baseUrl), init);
   const url = new URL(request.url, baseUrl);
   const body = await parseRequestBody(request);
 
@@ -1081,7 +1511,11 @@ function normalizeRecord(
   return normalized;
 }
 
-function createChildRecord(body: Record<string, unknown>, id: number, parent: Record<string, unknown>): Record<string, unknown> {
+function createChildRecord(
+  body: Record<string, unknown>,
+  id: number,
+  parent: Record<string, unknown>,
+): Record<string, unknown> {
   return {
     id,
     ...parent,
@@ -1091,10 +1525,15 @@ function createChildRecord(body: Record<string, unknown>, id: number, parent: Re
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
-function firstDefinedPathParam(pathParams: Record<string, string>, names: string[]): string | undefined {
+function firstDefinedPathParam(
+  pathParams: Record<string, string>,
+  names: string[],
+): string | undefined {
   for (const name of names) {
     if (pathParams[name] !== undefined) {
       return pathParams[name];
@@ -1104,11 +1543,18 @@ function firstDefinedPathParam(pathParams: Record<string, string>, names: string
   return Object.values(pathParams)[0];
 }
 
-function findByAnyId(collection: Array<Record<string, unknown>>, id: string): Record<string, unknown> | undefined {
+function findByAnyId(
+  collection: Array<Record<string, unknown>>,
+  id: string,
+): Record<string, unknown> | undefined {
   return collection.find((record) => idMatches(record, id));
 }
 
-function upsertById(collection: Array<Record<string, unknown>>, id: string | undefined, patch: Record<string, unknown>): Record<string, unknown> {
+function upsertById(
+  collection: Array<Record<string, unknown>>,
+  id: string | undefined,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
   if (id) {
     const existing = collection.find((record) => idMatches(record, id));
     if (existing) {
@@ -1153,7 +1599,11 @@ function maybePagedResponse(schema: unknown, collection: Array<Record<string, un
     };
   }
 
-  if (schemaName && !schemaName.toLowerCase().includes('list') && !schemaName.toLowerCase().includes('array')) {
+  if (
+    schemaName &&
+    !schemaName.toLowerCase().includes('list') &&
+    !schemaName.toLowerCase().includes('array')
+  ) {
     const sample = sampleFromSchema(schema);
     if (!Array.isArray(sample) && sample && typeof sample === 'object') {
       return sample;
@@ -1210,7 +1660,12 @@ function sampleFromSchema(schema: unknown, seen = new Set<string>()): unknown {
   }
 
   if ('allOf' in resolved && Array.isArray(resolved.allOf)) {
-    return Object.assign({}, ...resolved.allOf.map((item) => sampleFromSchema(item, seen)).filter((item) => item && typeof item === 'object'));
+    return Object.assign(
+      {},
+      ...resolved.allOf
+        .map((item) => sampleFromSchema(item, seen))
+        .filter((item) => item && typeof item === 'object'),
+    );
   }
 
   const type = 'type' in resolved ? resolved.type : undefined;
@@ -1220,7 +1675,11 @@ function sampleFromSchema(schema: unknown, seen = new Set<string>()): unknown {
   }
 
   if (type === 'object' || 'properties' in resolved) {
-    const properties = ('properties' in resolved && resolved.properties && typeof resolved.properties === 'object' ? resolved.properties : {}) as Record<string, unknown>;
+    const properties = (
+      'properties' in resolved && resolved.properties && typeof resolved.properties === 'object'
+        ? resolved.properties
+        : {}
+    ) as Record<string, unknown>;
     const object: Record<string, unknown> = {};
     for (const [key, propertySchema] of Object.entries(properties)) {
       object[key] = sampleValueForProperty(key, propertySchema, seen);
@@ -1297,6 +1756,7 @@ function refName(schema: unknown): string | undefined {
 function inferEntity(route: MockRouteDefinition): string {
   const path = route.path.toLowerCase();
   const tag = route.tags[0] ?? 'api';
+  if (route.operationId.toLowerCase().startsWith('leadforms_')) return 'leadForm';
 
   const pathEntityMap: Array<[string, string]> = [
     ['/contacts', 'contact'],

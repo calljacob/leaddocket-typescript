@@ -28,6 +28,7 @@ This package is a TypeScript API client and local mock API. It does not intentio
 When using this package:
 
 - never hardcode API tokens in source control;
+- copy `.dev.vars.example` to the Git-ignored `.dev.vars` file for local live calls;
 - prefer environment variables or a secret manager for credentials;
 - avoid logging real Lead Docket API tokens, webhook payloads, or personally identifiable information;
 - treat mock seed data as potentially sensitive if copied from production systems.

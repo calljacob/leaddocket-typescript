@@ -1,0 +1,151 @@
+{
+  "hostname": "mock.leaddocket.local",
+  "EventType": "Lead Edited",
+  "EventTypeId": 2,
+  "EventByUser": "Mock User",
+  "ContactId": 1001,
+  "ContactFirstName": "Ada",
+  "ContactMiddleName": null,
+  "ContactLastName": "Lovelace",
+  "ContactFullName": "Ada Lovelace",
+  "ContactAddress1": null,
+  "ContactAddress2": null,
+  "ContactCity": null,
+  "ContactCounty": null,
+  "ContactState": "Example value",
+  "ContactZip": null,
+  "ContactHomePhone": "+15550100001",
+  "ContactWorkPhone": "+15550100001",
+  "ContactMobilePhone": "+15550100001",
+  "ContactEmail": null,
+  "ContactPreferredContactMethod": null,
+  "ContactBirthdate": null,
+  "ContactDeceased": false,
+  "ContactMinor": false,
+  "ContactGender": null,
+  "ContactLanguage": "English",
+  "ContactCreatedDate": "2025-01-15T12:00:00.000Z",
+  "ContactCreatedBy": "Mock User",
+  "ContactCode": null,
+  "ContactTimezone": "2025-01-15T12:00:00.000Z",
+  "ContactNotes": null,
+  "LeadId": 2001,
+  "LeadCode": null,
+  "LeadCaseType": "Example Case Type",
+  "LeadCaseTypeCode": "Example Case Type",
+  "LeadStatus": "New",
+  "LeadSubstatus": "New",
+  "LeadSeverityLevel": "Example value",
+  "LeadSeverityLevelId": 1,
+  "LeadSummary": "Fictional case summary for webhook testing.",
+  "LeadInjuryInformation": null,
+  "OfficeName": "Main Office",
+  "LeadMarketingSource": "Example Website",
+  "LeadMarketingSourceDetails": null,
+  "ReferringUrl": null,
+  "CurrentUrl": null,
+  "UTM": "utm_source=example",
+  "ClientId": null,
+  "ClickId": null,
+  "Keywords": null,
+  "Campaign": "Example Campaign",
+  "LeadContactSource": "Web Form",
+  "LeadCreatedDate": "2025-01-15T12:00:00.000Z",
+  "LastStatusChangeDate": "2025-01-15T12:00:00.000Z",
+  "LeadIncidentDate": "2025-01-15T12:00:00.000Z",
+  "LeadIncidentDateWithTime": "2025-01-15T12:00:00.000Z",
+  "LeadIntakeName": "Mock Intake Team",
+  "LeadIntakeCode": null,
+  "LeadIntakeEmail": "intake@example.test",
+  "LeadCreatorName": "Mock Creator",
+  "LeadCreatorCode": null,
+  "LeadCreatorEmail": "creator@example.test",
+  "PhoneCallRecordingURL": "+15550100001",
+  "PhoneCallDuration": 100,
+  "PhoneCallFromNumber": "+15550100001",
+  "PhoneCallToNumber": "+15550100002",
+  "PhoneCallDate": "2025-01-15T12:00:00.000Z",
+  "PhoneCallSummary": null,
+  "PhoneCallTranscript": "+15550100001",
+  "Rejected Deep Dive": "Example value",
+  "Does PC have an Emergency Contact listed?": "Example value",
+  "Files": [
+    {
+      "Url": "https://www.example.test/mock-source",
+      "FileName": "example-document.pdf",
+      "Category": "Example value"
+    },
+    {
+      "Url": "https://www.example.test/mock-source",
+      "FileName": "example-document.pdf",
+      "Category": "Example value"
+    },
+    {
+      "Url": "https://www.example.test/mock-source",
+      "FileName": "example-document.pdf",
+      "Category": "Example value"
+    },
+    {
+      "Url": "https://www.example.test/mock-source",
+      "FileName": "example-document.pdf",
+      "Category": "Example value"
+    },
+    {
+      "Url": "https://www.example.test/mock-source",
+      "FileName": "example-document.pdf",
+      "Category": "Example value"
+    },
+    {
+      "Url": "https://www.example.test/mock-source",
+      "FileName": "example-document.pdf",
+      "Category": "Example value"
+    },
+    {
+      "Url": "https://www.example.test/mock-source",
+      "FileName": "example-document.pdf",
+      "Category": "Example value"
+    },
+    {
+      "Url": "https://www.example.test/mock-source",
+      "FileName": "example-document.pdf",
+      "Category": "Example value"
+    },
+    {
+      "Url": "https://www.example.test/mock-source",
+      "FileName": "example-document.pdf",
+      "Category": "Example value"
+    },
+    {
+      "Url": "https://www.example.test/mock-source",
+      "FileName": "example-document.pdf",
+      "Category": "Example value"
+    },
+    {
+      "Url": "https://www.example.test/mock-source",
+      "FileName": "example-document.pdf",
+      "Category": "Example value"
+    },
+    {
+      "Url": "https://www.example.test/mock-source",
+      "FileName": "example-document.pdf",
+      "Category": "Example value"
+    },
+    {
+      "Url": "https://www.example.test/mock-source",
+      "FileName": "example-document.pdf",
+      "Category": "Example value"
+    },
+    {
+      "Url": "https://www.example.test/mock-source",
+      "FileName": "example-document.pdf",
+      "Category": "Example value"
+    },
+    {
+      "Url": "https://www.example.test/mock-source",
+      "FileName": "example-document.pdf",
+      "Category": "Example value"
+    }
+  ],
+  "_request_path": "/webhooks/lead-docket",
+  "_request_type_param": null
+}

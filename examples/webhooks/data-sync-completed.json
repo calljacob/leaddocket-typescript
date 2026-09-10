@@ -1,0 +1,12 @@
+{
+  "hostname": "mock.leaddocket.local",
+  "EventType": "Data Sync Completed",
+  "EventTypeId": 29,
+  "FileName": "example-document.pdf",
+  "ReportName": "Example Data Sync Report",
+  "ReportId": 5001,
+  "CompletedDate": "2025-01-15T12:00:00.000Z",
+  "Duration": 637.677,
+  "_request_path": "/webhooks/lead-docket",
+  "_request_type_param": null
+}

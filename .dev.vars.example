@@ -1,0 +1,15 @@
+# Copy this file to .dev.vars and replace the placeholders.
+# Never commit .dev.vars or use public opportunity-integration access keys here.
+
+LEAD_DOCKET_BASE_URL=https://your-subdomain.leaddocket.com
+
+# Use exactly one authentication method.
+LEAD_DOCKET_API_KEY=replace-with-your-live-api-key
+# LEAD_DOCKET_BEARER_TOKEN=replace-with-your-live-bearer-token
+
+# Paste every Opportunity Integration Definitions/preview URL here.
+# The CLI forces preview=true and performs GET requests only.
+LEAD_DOCKET_INTEGRATION_PREVIEW_URLS='["https://your-subdomain.leaddocket.com/Opportunities/Form/123?apikey=replace-with-form-key"]'
+
+# Optional: business tracking phone numbers are excluded by default.
+# LEAD_DOCKET_INCLUDE_PHONE_NUMBERS=true

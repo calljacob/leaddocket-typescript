@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 1,
+  "server": {
+    "hostname": "127.0.0.1",
+    "port": 4010,
+    "cors": "*"
+  },
+  "generatedData": {
+    "seed": 12345,
+    "contacts": 20,
+    "leads": 20,
+    "opportunities": 20,
+    "tasks": 15,
+    "messages": 10,
+    "users": 5
+  },
+  "seed": {
+    "contacts": [
+      {
+        "Id": 1,
+        "FirstName": "Ada",
+        "LastName": "Lovelace",
+        "Code": "ADA"
+      }
+    ],
+    "contactCustomFields": [
+      {
+        "Id": 101,
+        "FieldName": "Preferred Language",
+        "Location": "Contact",
+        "FieldType": "Text"
+      }
+    ],
+    "customFields": [
+      {
+        "Id": 201,
+        "FieldName": "Estimated Case Value",
+        "Location": "Lead",
+        "FieldType": "Currency"
+      },
+      {
+        "Id": 301,
+        "FieldName": "Potential Case Value",
+        "Location": "Opportunity",
+        "FieldType": "Currency"
+      },
+      {
+        "Id": 302,
+        "FieldName": "Type of Matter",
+        "Location": "Opportunity",
+        "FieldType": "DropDownList"
+      },
+      {
+        "Id": 303,
+        "FieldName": "Consent to Contact",
+        "Location": "Opportunity",
+        "FieldType": "TrueFalse"
+      }
+    ]
+  },
+  "integrationPreviewUrls": [
+    "https://your-subdomain.leaddocket.com/Opportunities/Form/123?apikey=replace-with-form-key"
+  ],
+  "opportunityIntegrations": [
+    {
+      "id": 28,
+      "accessKey": "local-integration-28",
+      "name": "Website Case Evaluation",
+      "description": "Submit a local opportunity and trigger opportunity.created.",
+      "fields": [
+        { "key": "FirstName", "label": "First name", "required": true },
+        { "key": "LastName", "label": "Last name", "required": true },
+        { "key": "Email", "label": "Email", "type": "email", "required": true },
+        { "key": "MobilePhone", "label": "Phone", "type": "tel" },
+        {
+          "key": "Summary",
+          "label": "Tell us about your situation",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "custom:301",
+          "label": "Potential case value",
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "accessKey": "local-integration-15",
+      "name": "Referral Intake",
+      "defaults": {
+        "OpportunityTypeId": "ReferralForm",
+        "MarketingSource": "Referral"
+      }
+    },
+    {
+      "id": 40,
+      "accessKey": "local-integration-40",
+      "name": "Custom Matter Intake",
+      "fields": [
+        { "key": "FirstName", "required": true },
+        { "key": "LastName", "required": true },
+        {
+          "key": "custom:302",
+          "label": "Type of matter",
+          "type": "select",
+          "required": true,
+          "options": [
+            { "label": "Motor Vehicle Accident", "value": "mva" },
+            { "label": "Workers Compensation", "value": "workers_comp" }
+          ]
+        },
+        {
+          "key": "extra:ReferralTier",
+          "label": "Referral priority",
+          "type": "radio",
+          "options": [
+            { "label": "Standard review", "value": "standard" },
+            { "label": "Priority review", "value": "priority" }
+          ]
+        },
+        {
+          "key": "custom:303",
+          "label": "Consent to contact",
+          "type": "checkbox",
+          "checkedValue": "Accepted",
+          "uncheckedValue": "Declined"
+        },
+        {
+          "key": "MarketingSource",
+          "type": "hidden",
+          "defaultValue": "Custom Integration 40"
+        }
+      ]
+    }
+  ],
+  "webhookTimeoutMs": 10000,
+  "webhookSubscriptions": [
+    {
+      "url": "http://localhost:3000/webhooks/leaddocket",
+      "events": ["lead.*", "contact.*", "opportunity.*"]
+    }
+  ],
+  "webhookPresets": [
+    {
+      "label": "Lead signed up",
+      "event": "lead.status_changed",
+      "entity": "lead",
+      "action": "changed",
+      "data": {
+        "Id": 1001,
+        "PreviousStatus": "New",
+        "Status": "Signed Up"
+      }
+    }
+  ]
+}

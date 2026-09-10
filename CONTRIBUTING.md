@@ -5,17 +5,18 @@ Thanks for your interest in contributing to `@calljacob/leaddocket-typescript`.
 ## Development setup
 
 ```bash
-npm install
-npm run build
-npm run test
-npm run lint
+vp install
+vp check
+vp test
+vp pack
 ```
 
 ## Project structure
 
 - `openapi.json` is the OpenAPI source schema.
 - `src/client/` contains checked-in generated client code. The OpenAPI generator is not installed as a normal dev dependency.
-- `src/mock/` contains the in-memory mock API and webhook simulator.
+- `src/mock/` contains the in-memory mock API, HTTP server, admin UI, and webhook simulator.
+- `examples/webhooks/` contains sanitized Lead Docket webhook payload fixtures and a generated index.
 - `test/` contains Vitest coverage for the generated client and mock API.
 
 ## Regenerating the API client
@@ -23,19 +24,29 @@ npm run lint
 If the Lead Docket OpenAPI schema changes, update `openapi.json` and regenerate the client with:
 
 ```bash
-npx @hey-api/openapi-ts@0.99.0 -c openapi-ts.config.ts
+vp dlx @hey-api/openapi-ts@0.99.0 -c openapi-ts.config.ts
 ```
 
-The generator is intentionally invoked through `npx` so day-to-day installs do not include the OpenAPI generation dependency tree.
+The generator is intentionally invoked through `vp dlx` so day-to-day installs do not include the OpenAPI generation dependency tree.
 
 After regenerating, run:
 
 ```bash
-npm run format
-npm run lint
-npm run test
-npm run build
+vp check --fix
+vp test
+vp pack
 ```
+
+## Webhook payload examples
+
+Never commit webhook captures directly. Place new JSON payloads in `examples/webhooks/`, then run:
+
+```bash
+vp run sanitize:webhook-examples
+vp run check:webhook-examples
+```
+
+The sanitizer replaces personal identifiers and free text with controlled fictional values and regenerates `examples/webhooks/index.json`. Review the resulting diff before committing.
 
 ## Mock API changes
 
@@ -50,19 +61,18 @@ When adding or changing mock behavior:
 
 Before opening a pull request, please verify:
 
-- [ ] `npm run lint` passes.
-- [ ] `npm run test` passes.
-- [ ] `npm run build` passes.
+- [ ] `vp check` passes.
+- [ ] `vp test` passes.
+- [ ] `vp pack` passes.
 - [ ] Public API changes are documented in `README.md`.
 - [ ] Notable changes are added to `CHANGELOG.md` when appropriate.
 
 ## Code style
 
-This project uses Prettier and ESLint. Run:
+This project uses Vite+ with Oxfmt and Oxlint. Run:
 
 ```bash
-npm run format
-npm run lint
+vp check --fix
 ```
 
 Generated client files may have a different style than hand-written mock code. Avoid manual edits to generated files unless absolutely necessary.

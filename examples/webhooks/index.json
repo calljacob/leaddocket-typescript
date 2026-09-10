@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "description": "Sanitized Lead Docket webhook payload examples. All people and identifiers are fictional.",
+  "examples": [
+    {
+      "id": "contact-added",
+      "label": "Contact Added",
+      "eventType": "Contact Added",
+      "file": "contact-added.json"
+    },
+    {
+      "id": "contact-edited",
+      "label": "Contact Edited",
+      "eventType": "Contact Edited",
+      "file": "contact-edited.json"
+    },
+    {
+      "id": "data-sync-completed",
+      "label": "Data Sync Completed",
+      "eventType": "Data Sync Completed",
+      "file": "data-sync-completed.json"
+    },
+    {
+      "id": "email-received",
+      "label": "Email Received",
+      "eventType": "Email Received",
+      "file": "email-received.json"
+    },
+    {
+      "id": "file-uploaded",
+      "label": "File Uploaded",
+      "eventType": "File Uploaded",
+      "file": "file-uploaded.json"
+    },
+    {
+      "id": "lead-created",
+      "label": "Lead Created",
+      "eventType": "Lead Created",
+      "file": "lead-created.json"
+    },
+    {
+      "id": "lead-edited",
+      "label": "Lead Edited",
+      "eventType": "Lead Edited",
+      "file": "lead-edited.json"
+    },
+    {
+      "id": "lead-sent-to-external-system",
+      "label": "Lead Sent To External System",
+      "eventType": "Lead Sent to External System",
+      "file": "lead-sent-to-external-system.json"
+    },
+    {
+      "id": "lead-status-changed",
+      "label": "Lead Status Changed",
+      "eventType": "Lead Status Changed",
+      "file": "lead-status-changed.json"
+    },
+    {
+      "id": "note-added",
+      "label": "Note Added",
+      "eventType": "Note Added",
+      "file": "note-added.json"
+    },
+    {
+      "id": "opportunity-converted-to-lead",
+      "label": "Opportunity Converted To Lead",
+      "eventType": "Opportunity Converted To Lead",
+      "file": "opportunity-converted-to-lead.json"
+    },
+    {
+      "id": "opportunity-created",
+      "label": "Opportunity Created",
+      "eventType": "Opportunity Created",
+      "file": "opportunity-created.json"
+    },
+    {
+      "id": "opportunity-disregarded",
+      "label": "Opportunity Disregarded",
+      "eventType": "Opportunity Disregarded",
+      "file": "opportunity-disregarded.json"
+    },
+    {
+      "id": "tag-added-to-contact",
+      "label": "Tag Added To Contact",
+      "eventType": "Tag Added To Contact",
+      "file": "tag-added-to-contact.json"
+    },
+    {
+      "id": "text-received",
+      "label": "Text Received",
+      "eventType": "Text Received",
+      "file": "text-received.json"
+    }
+  ]
+}
