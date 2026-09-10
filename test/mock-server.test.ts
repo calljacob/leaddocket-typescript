@@ -4,7 +4,11 @@ import type { AddressInfo } from 'node:net';
 
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 
-import { startLeadDocketMockServer, type LeadDocketMockServer } from '../src/mock/server';
+import {
+  startLeadDocketMockServer,
+  type LeadDocketMockServer,
+  type LeadDocketMockServerOptions,
+} from '../src/mock/server';
 
 const openServers: LeadDocketMockServer[] = [];
 const openReceivers: Server[] = [];
@@ -57,6 +61,7 @@ describe('Lead Docket mock HTTP server', () => {
     const docsHtml = await docsResponse.text();
     expect(docsHtml).toContain('Lead Docket Mock Server');
     expect(docsHtml).toContain("url: '/openapi.json'");
+    expect(docsHtml).toContain('persistAuthorization: false');
     expect((await fetch(`${server.origin}/api/explore/index.html`)).ok).toBe(true);
     const swaggerCss = await fetch(`${server.origin}/__swagger/swagger-ui.css`);
     expect(swaggerCss.ok).toBe(true);
@@ -87,6 +92,9 @@ describe('Lead Docket mock HTTP server', () => {
     expect(mockDocument['x-mock-server']).toBe(true);
     expect(Object.keys(mockDocument['x-mock-webhook-payload-examples'])).toHaveLength(15);
 
+    const invalidIdResponse = await fetch(`${server.origin}/api/contacts/423343423424343442234234`);
+    expect(invalidIdResponse.status).toBe(400);
+
     const apiResponse = await fetch(`${server.origin}/api/contacts/1`);
     expect(apiResponse.ok).toBe(true);
     expect(apiResponse.headers.get('access-control-allow-origin')).toBe('*');
@@ -94,6 +102,7 @@ describe('Lead Docket mock HTTP server', () => {
 
     const adminResponse = await fetch(server.adminUrl);
     expect(adminResponse.ok).toBe(true);
+    expect(adminResponse.headers.get('cache-control')).toBe('no-store');
     expect(await adminResponse.text()).toContain('Lead Docket Mock');
 
     const integrationForm = await fetch(
@@ -153,10 +162,14 @@ describe('Lead Docket mock HTTP server', () => {
         id: '28',
         name: 'Server Integration Form',
         fieldCount: 5,
-        url: `${server.origin}/opportunities/form/28?apikey=local-server-key`,
-        previewUrl: `${server.origin}/opportunities/form/28?apikey=local-server-key&preview=true`,
       }),
     ]);
+    expect(state.integrations[0]?.url.toLowerCase()).toBe(
+      `${server.origin}/opportunities/form/28?apikey=local-server-key`,
+    );
+    expect(state.integrations[0]?.previewUrl.toLowerCase()).toBe(
+      `${server.origin}/opportunities/form/28?apikey=local-server-key&preview=true`,
+    );
     expect(state.webhookExamples).toHaveLength(15);
     const webhookExample = await fetch(`${server.origin}/__mock/webhook-examples/lead-created`);
     expect(webhookExample.ok).toBe(true);
@@ -168,7 +181,7 @@ describe('Lead Docket mock HTTP server', () => {
   });
 
   it('imports all pasted integration preview URLs and persists them through the server callback', async () => {
-    const imported: Array<{ urls: string[]; count: number }> = [];
+    const imported: Array<{ urls: string[]; accessKeys: string[] }> = [];
     const liveFetch: typeof fetch = async (input) => {
       const request = input instanceof Request ? input : new Request(input);
       expect(request.method).toBe('GET');
@@ -184,7 +197,10 @@ describe('Lead Docket mock HTTP server', () => {
       liveFetch,
       allowInsecureLiveUrls: true,
       onOpportunityIntegrationsImported: (urls, integrations) => {
-        imported.push({ urls, count: integrations.length });
+        imported.push({
+          urls,
+          accessKeys: integrations.map((integration) => integration.accessKey),
+        });
       },
     });
     openServers.push(server);
@@ -200,19 +216,24 @@ describe('Lead Docket mock HTTP server', () => {
     });
     expect(response.ok).toBe(true);
     expect(await response.json()).toMatchObject({ imported: 2 });
-    expect(imported).toEqual([{ urls, count: 2 }]);
+    expect(imported).toEqual([
+      {
+        urls,
+        accessKeys: [expect.stringMatching(/^mock-15-/), expect.stringMatching(/^mock-40-/)],
+      },
+    ]);
 
     const state = (await (await fetch(`${server.origin}/__mock/state`)).json()) as {
       integrations: Array<{ id: string; name: string; previewUrl: string }>;
     };
     expect(state.integrations).toEqual([
       expect.objectContaining({ id: '15', name: 'Imported Form 15' }),
-      expect.objectContaining({
-        id: '40',
-        name: 'Imported Form 40',
-        previewUrl: `${server.origin}/opportunities/form/40?apikey=local-40&preview=true`,
-      }),
+      expect.objectContaining({ id: '40', name: 'Imported Form 40' }),
     ]);
+    expect(state.integrations[1]?.previewUrl).toMatch(
+      new RegExp(`^${server.origin}/opportunities/form/40\\?apikey=mock-40-.*&preview=true$`, 'i'),
+    );
+    expect(JSON.stringify(state.integrations)).not.toContain('local-40');
   });
 
   it('generates deterministic startup data and appends more from the admin endpoint', async () => {
@@ -306,13 +327,240 @@ describe('Lead Docket mock HTTP server', () => {
     });
     expect(oversized.status).toBe(413);
   });
+
+  it('authenticates every admin route and refuses unauthenticated non-loopback binding', async () => {
+    await expect(startLeadDocketMockServer({ hostname: '0.0.0.0', port: 0 })).rejects.toThrow(
+      'adminAuth is required',
+    );
+
+    const server = await startLeadDocketMockServer({
+      port: 0,
+      adminAuth: { username: 'operator', password: 'test-secret' },
+    });
+    openServers.push(server);
+    const authorization = basicAuthorization('operator', 'test-secret');
+
+    const unauthenticatedPage = await fetch(server.adminUrl);
+    expect(unauthenticatedPage.status).toBe(401);
+    expect(unauthenticatedPage.headers.get('www-authenticate')).toContain('Basic');
+    expect(unauthenticatedPage.headers.get('cache-control')).toBe('no-store');
+
+    const unauthenticatedRead = await fetch(`${server.origin}/__mock/state`);
+    expect(unauthenticatedRead.status).toBe(401);
+    expect(unauthenticatedRead.headers.get('cache-control')).toBe('no-store');
+
+    const authenticatedRead = await fetch(`${server.origin}/__mock/state`, {
+      headers: { authorization },
+    });
+    expect(authenticatedRead.ok).toBe(true);
+    expect(authenticatedRead.headers.get('cache-control')).toBe('no-store');
+
+    const unauthenticatedWrite = await fetch(`${server.origin}/__mock/data/generate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: server.origin },
+      body: JSON.stringify({ contacts: 0 }),
+    });
+    expect(unauthenticatedWrite.status).toBe(401);
+
+    const authenticatedWrite = await fetch(`${server.origin}/__mock/data/generate`, {
+      method: 'POST',
+      headers: {
+        authorization,
+        'content-type': 'application/json',
+        origin: server.origin,
+      },
+      body: JSON.stringify({
+        contacts: 0,
+        leads: 0,
+        opportunities: 0,
+        tasks: 0,
+        messages: 0,
+        users: 0,
+      }),
+    });
+    expect(authenticatedWrite.ok).toBe(true);
+    expect(authenticatedWrite.headers.get('cache-control')).toBe('no-store');
+
+    const crossOriginWrite = await fetch(`${server.origin}/__mock/webhooks`, {
+      method: 'POST',
+      headers: {
+        authorization,
+        'content-type': 'application/json',
+        origin: 'https://attacker.example',
+      },
+      body: JSON.stringify({ event: 'lead.created' }),
+    });
+    expect(crossOriginWrite.status).toBe(403);
+    expect((await fetch(`${server.origin}/api/contacts/1`)).ok).toBe(true);
+  });
+
+  it('restricts webhook egress, refuses redirects, and permits exact allowlisted origins', async () => {
+    let receiverOrigin = '';
+    let followedRedirect = false;
+    const receiver = createServer((request, response) => {
+      if (request.url === '/redirect') {
+        response.statusCode = 302;
+        response.setHeader('location', `${receiverOrigin}/followed`);
+      } else {
+        followedRedirect = true;
+        response.statusCode = 204;
+      }
+      response.end();
+    });
+    openReceivers.push(receiver);
+    receiverOrigin = await listen(receiver);
+
+    const server = await startLeadDocketMockServer({ port: 0 });
+    openServers.push(server);
+    const redirected = await fetch(`${server.origin}/__mock/webhooks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: server.origin },
+      body: JSON.stringify({
+        targetUrl: `${receiverOrigin}/redirect`,
+        event: 'lead.created',
+      }),
+    });
+    expect(redirected.ok).toBe(true);
+    expect(await redirected.json()).toMatchObject({
+      deliveries: [expect.objectContaining({ ok: false, error: expect.any(String) })],
+    });
+    expect(followedRedirect).toBe(false);
+
+    const blocked = await fetch(`${server.origin}/__mock/webhooks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: server.origin },
+      body: JSON.stringify({
+        targetUrl: 'https://hooks.example.test/events',
+        event: 'lead.created',
+      }),
+    });
+    expect(blocked.status).toBe(403);
+
+    let observedRedirect: RequestRedirect | undefined;
+    const allowlistedServer = await startLeadDocketMockServer({
+      port: 0,
+      webhookEgress: { allowedOrigins: ['https://hooks.example.test'] },
+      mock: {
+        webhookFetch: async (_input, init) => {
+          observedRedirect = init?.redirect;
+          return new Response(undefined, { status: 204 });
+        },
+      },
+    });
+    openServers.push(allowlistedServer);
+    const allowed = await fetch(`${allowlistedServer.origin}/__mock/webhooks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: allowlistedServer.origin },
+      body: JSON.stringify({
+        targetUrl: 'https://hooks.example.test/events',
+        event: 'lead.created',
+      }),
+    });
+    expect(allowed.ok).toBe(true);
+    expect(observedRedirect).toBe('error');
+  });
+
+  it('does not commit imported integrations when persistence fails and recovers the queue', async () => {
+    let persistenceAttempts = 0;
+    const server = await startLeadDocketMockServer({
+      port: 0,
+      allowInsecureLiveUrls: true,
+      liveFetch: async () =>
+        new Response(
+          '<h1>Imported Form 9</h1><form><label>Name<input name="Name" /></label></form>',
+          { status: 200, headers: { 'content-type': 'text/html' } },
+        ),
+      mock: {
+        opportunityIntegrations: [{ id: 5, accessKey: 'existing', name: 'Existing Form' }],
+      },
+      onOpportunityIntegrationsImported: () => {
+        persistenceAttempts += 1;
+        if (persistenceAttempts === 1) throw new Error('Persistence failed');
+      },
+    });
+    openServers.push(server);
+
+    const importIntegration = () =>
+      fetch(`${server.origin}/__mock/integrations/import`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: server.origin },
+        body: JSON.stringify({
+          urls: ['http://live.example.test/Opportunities/Form/9?apikey=imported'],
+        }),
+      });
+
+    const failed = await importIntegration();
+    expect(failed.status).toBe(502);
+    expect(server.mock.getOpportunityIntegrations()).toEqual([
+      expect.objectContaining({ id: '5', name: 'Existing Form' }),
+    ]);
+
+    const recovered = await importIntegration();
+    expect(recovered.ok).toBe(true);
+    expect(server.mock.getOpportunityIntegrations()).toEqual([
+      expect.objectContaining({ id: '9', name: 'Imported Form 9' }),
+    ]);
+  });
+
+  it('closes its listener when initialization fails after listen', async () => {
+    const probe = createServer();
+    const probeOrigin = await listen(probe);
+    const port = Number(new URL(probeOrigin).port);
+    await closeServer(probe);
+
+    const options = { port } as LeadDocketMockServerOptions;
+    Object.defineProperty(options, 'mock', {
+      get() {
+        throw new Error('Post-listen initialization failed');
+      },
+    });
+    await expect(startLeadDocketMockServer(options)).rejects.toThrow(
+      'Post-listen initialization failed',
+    );
+
+    const replacement = createServer();
+    openReceivers.push(replacement);
+    await listen(replacement, port);
+  });
+
+  it('streams Fetch response bodies without calling arrayBuffer', async () => {
+    const server = await startLeadDocketMockServer({ port: 0 });
+    openServers.push(server);
+    const originalArrayBuffer = Object.getOwnPropertyDescriptor(Response.prototype, 'arrayBuffer');
+    Object.defineProperty(Response.prototype, 'arrayBuffer', {
+      configurable: true,
+      value: async () => {
+        throw new Error('Response.arrayBuffer should not be called');
+      },
+    });
+    try {
+      const response = await fetch(`${server.origin}/api/contacts/1`);
+      expect(response.ok).toBe(true);
+      expect(await response.json()).toMatchObject({ id: 1 });
+    } finally {
+      if (originalArrayBuffer) {
+        Object.defineProperty(Response.prototype, 'arrayBuffer', originalArrayBuffer);
+      }
+    }
+  });
 });
 
-async function listen(server: Server): Promise<string> {
+function basicAuthorization(username: string, password: string): string {
+  return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+}
+
+async function listen(server: Server, port = 0): Promise<string> {
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
+    server.listen(port, '127.0.0.1', resolve);
   });
   const address = server.address() as AddressInfo;
   return `http://127.0.0.1:${address.port}`;
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+    server.closeAllConnections();
+  });
 }

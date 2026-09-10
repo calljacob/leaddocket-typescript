@@ -36,8 +36,17 @@ jobs:
       - name: Check formatting, lint, and types
         run: vp check
 
+      - name: Check generated mock metadata
+        run: vp run check:mock-metadata
+
+      - name: Check webhook examples
+        run: vp run check:webhook-examples
+
       - name: Run tests
         run: vp test
 
       - name: Pack library
         run: vp pack
+
+      - name: Check packed package contract
+        run: vp run check:package-contract

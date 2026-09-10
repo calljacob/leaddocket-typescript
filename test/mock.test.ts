@@ -23,16 +23,15 @@ function concretePath(path: string): string {
 
 describe('Lead Docket mock API', () => {
   it('responds to every generated OpenAPI operation', async () => {
-    const mock = createLeadDocketMockApi({ deliverWebhooks: false });
-
     for (const route of mockRouteDefinitions) {
+      const mock = createLeadDocketMockApi({ deliverWebhooks: false });
       const response = await mock.fetch(`${mock.baseUrl}${concretePath(route.path)}?mock=true`, {
         method: route.method,
         headers: { 'content-type': 'application/json' },
         body: route.method === 'GET' ? undefined : JSON.stringify({ name: 'Mock Request' }),
       });
 
-      expect(response.ok, `${route.method} ${route.path}`).toBe(true);
+      expect(response.status, `${route.method} ${route.path}`).toBeLessThan(500);
       const responseText = await response.text();
       if (responseText) {
         expect(() => JSON.parse(responseText), `${route.method} ${route.path}`).not.toThrow();
@@ -224,6 +223,25 @@ describe('Lead Docket mock API', () => {
     ]);
   });
 
+  it('rejects invalid int32 path IDs and does not fabricate missing contacts', async () => {
+    const mock = createLeadDocketMockApi();
+    const oversizedId = '423343423424343442234234';
+
+    const oversized = await mock.fetch(`${mock.baseUrl}/api/contacts/${oversizedId}`);
+    expect(oversized.status).toBe(400);
+    expect(await oversized.json()).toEqual({
+      message: 'Invalid path parameter "id": expected a 32-bit integer.',
+    });
+
+    const aboveInt32 = await mock.fetch(`${mock.baseUrl}/api/contacts/2147483648`);
+    expect(aboveInt32.status).toBe(400);
+
+    const missing = await mock.fetch(`${mock.baseUrl}/api/contacts/2147483647`);
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toEqual({ message: 'contact 2147483647 was not found.' });
+    expect(JSON.stringify(mock.getStore('contacts'))).not.toContain('4.233434');
+  });
+
   it('returns a useful 404 response for unknown routes', async () => {
     const mock = createLeadDocketMockApi();
 
@@ -237,10 +255,14 @@ describe('Lead Docket mock API', () => {
     expect(body.knownRoutes).toContain('GET /api/contacts/{id}');
   });
 
-  it('records webhook failures without failing the originating API operation', async () => {
+  it('delivers flat Lead Docket payloads and records failures without failing the operation', async () => {
+    let deliveredPayload: Record<string, unknown> | undefined;
     const mock = createLeadDocketMockApi({
       webhookSubscriptions: [{ url: 'https://webhook.example.test', events: ['contact.*'] }],
-      webhookFetch: async () => new Response(null, { status: 500 }),
+      webhookFetch: async (input, init) => {
+        deliveredPayload = (await new Request(input, init).json()) as Record<string, unknown>;
+        return new Response(null, { status: 500 });
+      },
     });
 
     client.setConfig({ baseUrl: mock.baseUrl, fetch: mock.fetch });
@@ -249,6 +271,14 @@ describe('Lead Docket mock API', () => {
     });
 
     expect(response.error).toBeUndefined();
+    expect(deliveredPayload).toMatchObject({
+      EventType: 'Contact Added',
+      EventTypeId: 6,
+      ContactFirstName: 'Delivery',
+      ContactLastName: 'Failure',
+    });
+    expect(deliveredPayload).not.toHaveProperty('event');
+    expect(deliveredPayload).not.toHaveProperty('data');
     expect(mock.getWebhookDeliveries()).toEqual([
       expect.objectContaining({
         target: 'https://webhook.example.test',

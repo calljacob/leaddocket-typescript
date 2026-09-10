@@ -10,7 +10,7 @@ function response(value: unknown): Response {
 }
 
 describe('live Lead Docket reference-data discovery', () => {
-  it('synchronizes safe tenant metadata and strips identity/contact fields', async () => {
+  it('synchronizes allowlisted tenant metadata', async () => {
     const requests: Request[] = [];
     const liveFetch: typeof fetch = async (input, init) => {
       const request =
@@ -40,12 +40,11 @@ describe('live Lead Docket reference-data discovery', () => {
             LeadRoleId: 2,
             RoleName: 'Attorney',
             IsOwner: true,
-            UserEmail: 'employee@live.example',
           },
         ]);
       }
       if (url.pathname === '/api/leadsources/list') {
-        return response({ Data: [{ Id: 3, Name: 'Website', PhoneNumber: '5551234567' }] });
+        return response({ Data: [{ Id: 3, Name: 'Website' }] });
       }
       if (url.pathname === '/api/lookups/gettypes') {
         return response([
@@ -134,6 +133,104 @@ describe('live Lead Docket reference-data discovery', () => {
     expect(JSON.stringify(snapshot)).not.toContain('employee@live.example');
     expect(JSON.stringify(snapshot)).not.toContain('5551234567');
     expect(JSON.stringify(snapshot)).not.toContain('live.example.test/forms');
+  });
+
+  it('rejects unknown sensitive shapes without reporting properties, values, or credentials', async () => {
+    const apiKey = 'reference-data-secret';
+    const liveFetch: typeof fetch = async (input) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString());
+      if (url.pathname === '/api/statuses') return response({ Data: [] });
+      if (url.pathname === '/api/leadroles') {
+        return response([
+          { LeadRoleId: 2, RoleName: 'Attorney', UserEmail: 'private-person@example.test' },
+        ]);
+      }
+      if (url.pathname === '/api/leadsources/list') return response({ Data: [] });
+      if (url.pathname === '/api/lookups/gettypes') return response([]);
+      if (url.pathname === '/api/leads/forms') return response([]);
+      if (url.pathname === '/api/referrals/listpracticeareas') return response([]);
+      if (url.pathname === '/api/settings/get-options') return response({});
+      return response([]);
+    };
+
+    let caught: unknown;
+    try {
+      await discoverLeadDocketReferenceData({
+        baseUrl: 'https://live.example.test',
+        auth: { apiKey },
+        fetch: liveFetch,
+        allowCustomHost: true,
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect(String(caught)).toContain('/api/leadroles');
+    expect(String(caught)).not.toContain('UserEmail');
+    expect(String(caught)).not.toContain('private-person@example.test');
+    expect(String(caught)).not.toContain(apiKey);
+    expect(caught).not.toHaveProperty('cause');
+  });
+
+  it('bounds lookup and lead-form detail concurrency', async () => {
+    let active = 0;
+    let maximumActive = 0;
+    let boundedRequestCount = 0;
+    const enterBoundedRequest = async () => {
+      boundedRequestCount += 1;
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+    };
+    const liveFetch: typeof fetch = async (input) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString());
+      if (url.pathname === '/api/statuses') return response({ Data: [] });
+      if (url.pathname === '/api/leadroles') return response([]);
+      if (url.pathname === '/api/leadsources/list') return response({ Data: [] });
+      if (url.pathname === '/api/lookups/gettypes') {
+        return response([
+          'LeadSource',
+          'CaseType',
+          'MarketingSource',
+          'Statuses',
+          'Offices',
+          'Forms',
+          'Tags',
+        ]);
+      }
+      if (url.pathname === '/api/lookups') {
+        await enterBoundedRequest();
+        return response(['option']);
+      }
+      if (url.pathname === '/api/leads/forms') {
+        return response(
+          Array.from({ length: 6 }, (_, index) => ({
+            Data: { LeadFormId: index + 1, FormName: `Form ${index + 1}` },
+          })),
+        );
+      }
+      if (url.pathname.startsWith('/api/leads/forms/')) {
+        await enterBoundedRequest();
+        const id = Number(url.pathname.split('/').at(-1));
+        return response({ Data: { LeadFormId: id, FormName: `Form ${id}` } });
+      }
+      if (url.pathname === '/api/referrals/listpracticeareas') return response([]);
+      if (url.pathname === '/api/settings/get-options') return response({});
+      return response([]);
+    };
+
+    await discoverLeadDocketReferenceData({
+      baseUrl: 'https://live.example.test',
+      auth: { apiKey: 'secret' },
+      fetch: liveFetch,
+      allowCustomHost: true,
+      maxConcurrency: 2,
+    });
+
+    expect(maximumActive).toBe(2);
+    expect(boundedRequestCount).toBe(13);
   });
 
   it('feeds synchronized envelopes and lookup catalogs into the mock endpoints', async () => {

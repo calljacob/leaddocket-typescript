@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { randomUUID } from 'node:crypto';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { loadEnvFile } from 'node:process';
@@ -52,17 +53,19 @@ async function main(): Promise<void> {
     generatedData: config.generatedData,
     mock: {
       seed: config.seed,
+      historyLimit: config.historyLimit,
+      captureHistoryBodies: config.captureHistoryBodies,
+      maxRequestBodyBytes: config.maxRequestBodyBytes,
       opportunityIntegrations: config.opportunityIntegrations,
       webhookSubscriptions: config.webhookSubscriptions,
       webhookTimeoutMs: config.webhookTimeoutMs,
     },
     webhookPresets: config.webhookPresets,
-    onOpportunityIntegrationsImported: async (previewUrls, integrations) => {
+    onOpportunityIntegrationsImported: async (_previewUrls, integrations) => {
       const current = await readConfig(args.configPath, true);
       await writeConfig(args.configPath, {
         ...current,
         schemaVersion: 1,
-        integrationPreviewUrls: previewUrls,
         opportunityIntegrations: integrations,
       });
     },
@@ -163,8 +166,7 @@ async function syncIntegrations(configPath: string): Promise<void> {
   await writeConfig(configPath, {
     ...existing,
     schemaVersion: 1,
-    integrationPreviewUrls: previewUrls,
-    opportunityIntegrations: snapshot.opportunityIntegrations,
+    opportunityIntegrations: withMockAccessKeys(snapshot.opportunityIntegrations),
   });
   console.log(
     `Saved ${snapshot.opportunityIntegrations.length} opportunity integrations to ${resolve(configPath)}.`,
@@ -197,8 +199,7 @@ async function syncLive(configPath: string): Promise<void> {
     ...existing,
     schemaVersion: 1,
     seed: mergeLiveSeed(existing.seed, customFields.seed, referenceData.seed),
-    integrationPreviewUrls: previewUrls,
-    opportunityIntegrations: integrations.opportunityIntegrations,
+    opportunityIntegrations: withMockAccessKeys(integrations.opportunityIntegrations),
   });
   console.log(
     `Saved ${customFields.seed.contactCustomFields.length} contact fields, ${customFields.seed.customFields.length} lead/opportunity fields, live reference metadata, and ${integrations.opportunityIntegrations.length} integrations to ${resolve(configPath)}.`,
@@ -245,6 +246,15 @@ function mergeLiveSeed(
     }),
     { ...existing },
   );
+}
+
+function withMockAccessKeys<T extends { id: string | number; accessKey: string }>(
+  integrations: T[],
+): T[] {
+  return integrations.map((integration) => ({
+    ...integration,
+    accessKey: `mock-${integration.id}-${randomUUID()}`,
+  }));
 }
 
 function integrationPreviewUrls(config: LeadDocketMockServerConfig): string[] {

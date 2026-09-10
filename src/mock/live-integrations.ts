@@ -12,6 +12,12 @@ export type DiscoverLeadDocketIntegrationsOptions = {
   fetch?: typeof fetch;
   signal?: AbortSignal;
   allowInsecure?: boolean;
+  /** Maximum decoded preview response size. Defaults to 1 MiB. */
+  maxResponseBytes?: number;
+  /** Per-preview timeout in milliseconds. Defaults to 10 seconds. */
+  timeoutMs?: number;
+  /** Maximum number of simultaneous preview requests. Defaults to 5. */
+  concurrency?: number;
 };
 
 export type LeadDocketIntegrationSnapshot = {
@@ -26,31 +32,52 @@ export async function discoverLeadDocketIntegrations(
     throw new RangeError('Integration discovery requires between 1 and 100 preview URLs.');
   }
   const fetchImplementation = options.fetch ?? globalThis.fetch;
-  const integrations = await Promise.all(
-    options.previewUrls.map(async (value) => {
-      const source = normalizePreviewUrl(value, options.allowInsecure ?? false);
-      const id = integrationId(source);
-      try {
-        const response = await fetchImplementation(source, {
-          method: 'GET',
-          redirect: 'error',
-          signal: options.signal,
-          headers: { accept: 'text/html' },
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return parseLeadDocketIntegrationPreview(
-          await response.text(),
-          source,
-          options.customFields ?? [],
-        );
-      } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') throw error;
-        throw new Error(`Unable to import Lead Docket integration ${id} from its preview page.`, {
-          cause: error,
-        });
-      }
-    }),
+  const maxResponseBytes = boundedInteger(
+    options.maxResponseBytes,
+    1024 * 1024,
+    1,
+    20 * 1024 * 1024,
+    'maxResponseBytes',
   );
+  const timeoutMs = boundedInteger(options.timeoutMs, 10_000, 1, 120_000, 'timeoutMs');
+  const concurrency = boundedInteger(options.concurrency, 5, 1, 20, 'concurrency');
+  const integrations = await mapConcurrent(options.previewUrls, concurrency, async (value) => {
+    const source = normalizePreviewUrl(value, options.allowInsecure ?? false);
+    const id = integrationId(source).id;
+    const controller = new AbortController();
+    const abortFromParent = () => controller.abort(options.signal?.reason);
+    options.signal?.addEventListener('abort', abortFromParent, { once: true });
+    const timeout = setTimeout(
+      () =>
+        controller.abort(
+          new DOMException('Integration preview request timed out.', 'TimeoutError'),
+        ),
+      timeoutMs,
+    );
+    try {
+      if (options.signal?.aborted) controller.abort(options.signal.reason);
+      const response = await fetchImplementation(source, {
+        method: 'GET',
+        redirect: 'error',
+        signal: controller.signal,
+        headers: { accept: 'text/html' },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return parseLeadDocketIntegrationPreview(
+        await readResponseText(response, maxResponseBytes),
+        source,
+        options.customFields ?? [],
+      );
+    } catch (error) {
+      if (options.signal?.aborted) throw options.signal.reason ?? error;
+      throw new Error(`Unable to import Lead Docket integration ${id} from its preview page.`, {
+        cause: error,
+      });
+    } finally {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener('abort', abortFromParent);
+    }
+  });
 
   const ids = new Set<string>();
   for (const integration of integrations) {
@@ -66,34 +93,51 @@ export function parseLeadDocketIntegrationPreview(
   sourceUrl: URL,
   customFields: MockCustomFieldDefinition[] = [],
 ): MockOpportunityIntegration {
-  const id = integrationId(sourceUrl);
+  const source = integrationId(sourceUrl);
+  const id = source.id;
   const accessKey = sourceUrl.searchParams.get('apikey');
   if (!accessKey) throw new TypeError(`Lead Docket integration ${id} is missing its access key.`);
-  const formHtml = /<form\b[^>]*>([\s\S]*?)<\/form>/i.exec(html)?.[1] ?? html;
+  const formMatch = /<form\b([^>]*)>([\s\S]*?)<\/form>/i.exec(html);
+  const formAttributes = parseAttributes(formMatch?.[1] ?? '');
+  const formHtml = formMatch?.[2] ?? html;
   const fields = mapControls(extractControls(formHtml), customFields);
   if (fields.length === 0) {
     throw new TypeError(`Lead Docket integration ${id} preview did not contain importable fields.`);
+  }
+  let endpoint = source.endpoint;
+  if (formAttributes.action) {
+    try {
+      const action = integrationId(new URL(formAttributes.action, sourceUrl));
+      if (action.id === id) endpoint = action.endpoint;
+    } catch {
+      // Non-Lead-Docket form actions do not override the preview endpoint.
+    }
   }
   return {
     id,
     accessKey,
     name: extractText(html, 'h1') ?? extractText(html, 'title') ?? `Lead Docket Integration ${id}`,
     description: 'Imported from a read-only Lead Docket integration preview.',
+    method: normalizeFormMethod(formAttributes.method),
+    enctype: normalizeFormEnctype(formAttributes.enctype),
+    endpoint,
     fields,
   };
 }
 
 type Attributes = Record<string, string>;
 type LiveControl = {
+  position: number;
   name: string;
   label: string;
   type: MockOpportunityIntegrationField['type'];
   required: boolean;
   placeholder?: string;
-  defaultValue?: string | boolean;
+  defaultValue?: string | boolean | string[];
   checkedValue?: string | boolean;
   uncheckedValue?: false;
   options?: MockOpportunityIntegrationFieldOption[];
+  multiple?: boolean;
   customFieldId?: number;
 };
 
@@ -123,11 +167,26 @@ function normalizePreviewUrl(value: string, allowInsecure: boolean): URL {
   return url;
 }
 
-function integrationId(url: URL): string {
-  const match = /^\/opportunities\/form\/([^/]+?)\/?$/i.exec(url.pathname);
-  if (!match) throw new TypeError('Integration URLs must use /Opportunities/Form/{id}.');
+function integrationId(url: URL): {
+  id: string;
+  endpoint: NonNullable<MockOpportunityIntegration['endpoint']>;
+} {
+  const match =
+    /^\/opportunities\/(form|formjson|formjsonnested)\/([^/]+?)\/?$/i.exec(url.pathname) ??
+    /^\/(formjson|formjsonnested)\/([^/]+?)\/?$/i.exec(url.pathname);
+  if (!match) {
+    throw new TypeError(
+      'Integration URLs must use /Opportunities/Form/{id}, /Opportunities/FormJson/{id}, or /FormJsonNested/{id}.',
+    );
+  }
   try {
-    return decodeURIComponent(match[1]);
+    const endpoint =
+      match[1].toLowerCase() === 'formjson'
+        ? 'formJson'
+        : match[1].toLowerCase() === 'formjsonnested'
+          ? 'formJsonNested'
+          : 'form';
+    return { id: decodeURIComponent(match[2]), endpoint };
   } catch {
     throw new TypeError('Integration URL contains an invalid form id.');
   }
@@ -153,6 +212,7 @@ function extractControls(html: string): LiveControl[] {
       continue;
     const label = labels.get(attributes.id) ?? attributes.placeholder ?? humanize(name);
     const common = {
+      position: match.index,
       name,
       label,
       required: 'required' in attributes,
@@ -164,16 +224,48 @@ function extractControls(html: string): LiveControl[] {
       const existing = controls.find(
         (control) => control.name === name && control.type === 'radio',
       );
-      if (existing) existing.options?.push(option);
-      else controls.push({ ...common, type: 'radio', options: [option] });
+      if (existing) {
+        existing.options?.push(option);
+        existing.required ||= common.required;
+        if ('checked' in attributes) existing.defaultValue = option.value;
+      } else {
+        controls.push({
+          ...common,
+          type: 'radio',
+          options: [option],
+          defaultValue: 'checked' in attributes ? option.value : undefined,
+        });
+      }
     } else if (inputType === 'checkbox') {
-      controls.push({
-        ...common,
-        type: 'checkbox',
-        checkedValue: attributes.value && attributes.value !== 'on' ? attributes.value : true,
-        uncheckedValue: false,
-        defaultValue: 'checked' in attributes,
-      });
+      const checkedValue = attributes.value && attributes.value !== 'on' ? attributes.value : true;
+      const existing = controls.find(
+        (control) => control.name === name && control.type === 'checkbox',
+      );
+      if (existing) {
+        const firstValue = existing.checkedValue ?? true;
+        existing.multiple = true;
+        existing.options = existing.options ?? [
+          { label: existing.label, value: String(firstValue) },
+        ];
+        existing.options.push({ label, value: String(checkedValue) });
+        existing.required ||= common.required;
+        const selected = Array.isArray(existing.defaultValue)
+          ? existing.defaultValue
+          : existing.defaultValue === true
+            ? [String(firstValue)]
+            : [];
+        existing.defaultValue =
+          'checked' in attributes ? [...selected, String(checkedValue)] : selected;
+        existing.checkedValue = undefined;
+      } else {
+        controls.push({
+          ...common,
+          type: 'checkbox',
+          checkedValue,
+          uncheckedValue: false,
+          defaultValue: 'checked' in attributes,
+        });
+      }
     } else if (inputType === 'hidden') {
       controls.push({ ...common, type: 'hidden', defaultValue: attributes.value ?? '' });
     } else {
@@ -189,6 +281,7 @@ function extractControls(html: string): LiveControl[] {
     const attributes = parseAttributes(match[1]);
     if (!attributes.name || isFrameworkField(attributes.name)) continue;
     controls.push({
+      position: match.index,
       name: attributes.name,
       label: labels.get(attributes.id) ?? attributes.placeholder ?? humanize(attributes.name),
       type: 'textarea',
@@ -210,20 +303,31 @@ function extractControls(html: string): LiveControl[] {
         return { label, value: optionAttributes.value ?? label };
       })
       .filter((option) => option.value !== '');
-    const selected = optionMatches.find((option) => 'selected' in parseAttributes(option[1]));
+    const selected = optionMatches
+      .filter((option) => 'selected' in parseAttributes(option[1]))
+      .map((option) => parseAttributes(option[1]).value ?? stripHtml(option[2]));
+    const multiple = 'multiple' in attributes;
     controls.push({
+      position: match.index,
       name: attributes.name,
       label: labels.get(attributes.id) ?? humanize(attributes.name),
       type: 'select',
       required: 'required' in attributes,
       options,
-      defaultValue: selected
-        ? (parseAttributes(selected[1]).value ?? stripHtml(selected[2]))
-        : undefined,
+      multiple,
+      defaultValue: multiple ? selected : selected[0],
       customFieldId: explicitCustomFieldId(attributes),
     });
   }
-  return controls;
+  return controls
+    .filter(
+      (control) =>
+        control.type !== 'hidden' ||
+        !controls.some(
+          (candidate) => candidate.name === control.name && candidate.type === 'checkbox',
+        ),
+    )
+    .sort((left, right) => left.position - right.position);
 }
 
 function mapControls(
@@ -231,17 +335,16 @@ function mapControls(
   customFields: MockCustomFieldDefinition[],
 ): MockOpportunityIntegrationField[] {
   const fields: MockOpportunityIntegrationField[] = [];
-  const keys = new Set<string>();
   for (const control of controls) {
-    let key = mapFieldKey(control, customFields);
-    if (keys.has(key)) key = uniqueExtraKey(control.name, keys);
-    keys.add(key);
+    const key = mapFieldKey(control, customFields);
     fields.push({
       key,
+      sourceName: control.name,
       label: control.label,
       type: control.type,
       required: control.required,
       options: control.options,
+      multiple: control.multiple,
       placeholder: control.placeholder,
       defaultValue: control.defaultValue,
       checkedValue: control.checkedValue,
@@ -327,11 +430,17 @@ function normalizeInputType(value: string): MockOpportunityIntegrationField['typ
     : 'text';
 }
 
-function uniqueExtraKey(name: string, keys: Set<string>): `extra:${string}` {
-  let suffix = 2;
-  let key: `extra:${string}` = `extra:${name}`;
-  while (keys.has(key)) key = `extra:${name}_${suffix++}`;
-  return key;
+function normalizeFormMethod(value: string | undefined): 'get' | 'post' {
+  return value?.toLowerCase() === 'get' ? 'get' : 'post';
+}
+
+function normalizeFormEnctype(
+  value: string | undefined,
+): NonNullable<MockOpportunityIntegration['enctype']> {
+  const normalized = value?.split(';', 1)[0].trim().toLowerCase();
+  return normalized === 'multipart/form-data' || normalized === 'application/json'
+    ? normalized
+    : 'application/x-www-form-urlencoded';
 }
 
 function isFrameworkField(name: string): boolean {
@@ -377,4 +486,63 @@ function humanize(value: string): string {
     .replace(/[_-]+/g, ' ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .trim();
+}
+
+function boundedInteger(
+  value: number | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+  name: string,
+): number {
+  const result = value ?? fallback;
+  if (!Number.isInteger(result) || result < minimum || result > maximum) {
+    throw new RangeError(`${name} must be an integer between ${minimum} and ${maximum}.`);
+  }
+  return result;
+}
+
+async function mapConcurrent<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  task: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  let nextIndex = 0;
+  async function worker(): Promise<void> {
+    while (nextIndex < values.length) {
+      const index = nextIndex++;
+      results[index] = await task(values[index]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, () => worker()));
+  return results;
+}
+
+async function readResponseText(response: Response, maxResponseBytes: number): Promise<string> {
+  const contentLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {
+    throw new RangeError(`Integration preview response exceeds ${maxResponseBytes} bytes.`);
+  }
+  if (!response.body) return '';
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let size = 0;
+  let text = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxResponseBytes) {
+        await reader.cancel();
+        throw new RangeError(`Integration preview response exceeds ${maxResponseBytes} bytes.`);
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
 }

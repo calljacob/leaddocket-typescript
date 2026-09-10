@@ -49,7 +49,10 @@ export type MockOpportunityIntegrationFieldOption =
     };
 
 export type MockOpportunityIntegrationField = {
+  /** Destination opportunity/custom/extra field. */
   key: MockOpportunityIntegrationFieldKey;
+  /** Original HTML/JSON field name. Defaults to `key` for backward compatibility. */
+  sourceName?: string;
   label?: string;
   type?:
     | 'text'
@@ -64,8 +67,10 @@ export type MockOpportunityIntegrationField = {
     | 'hidden';
   required?: boolean;
   options?: MockOpportunityIntegrationFieldOption[];
+  /** Allows repeated form keys and array-valued JSON for selects and checkbox groups. */
+  multiple?: boolean;
   placeholder?: string;
-  defaultValue?: string | number | boolean;
+  defaultValue?: string | number | boolean | Array<string | number | boolean>;
   checkedValue?: string | number | boolean;
   uncheckedValue?: string | number | boolean | null;
 };
@@ -74,6 +79,12 @@ export type MockOpportunityIntegration = {
   id: string | number;
   accessKey: string;
   name: string;
+  /** Form submission method imported from the live preview. Defaults to POST. */
+  method?: 'get' | 'post';
+  /** Form encoding imported from the live preview. */
+  enctype?: 'application/x-www-form-urlencoded' | 'multipart/form-data' | 'application/json';
+  /** Lead Docket endpoint style used when generating access URLs. */
+  endpoint?: 'form' | 'formJson' | 'formJsonNested';
   description?: string;
   submitLabel?: string;
   successMessage?: string;
@@ -152,7 +163,14 @@ export function createOpportunityIntegrationForms(
     accessUrl(origin, id, preview = false) {
       const integration = integrations.get(id);
       if (!integration) return undefined;
-      const url = new URL(`/opportunities/form/${encodeURIComponent(id)}`, origin);
+      const endpoint = integration.endpoint ?? 'form';
+      const segment =
+        endpoint === 'formJson'
+          ? 'FormJson'
+          : endpoint === 'formJsonNested'
+            ? 'FormJsonNested'
+            : 'form';
+      const url = new URL(`/opportunities/${segment}/${encodeURIComponent(id)}`, origin);
       url.searchParams.set('apikey', integration.accessKey);
       if (preview) url.searchParams.set('preview', 'true');
       return url.toString();
@@ -172,14 +190,23 @@ export function createOpportunityIntegrationForms(
       if (!integration || request.query.apikey !== integration.accessKey) {
         return htmlResponse(renderNotFound(), 404);
       }
-      if (request.method === 'GET') {
+      const configuredMethod = (integration.method ?? 'post').toUpperCase();
+      const isGetSubmission =
+        request.method === 'GET' &&
+        configuredMethod === 'GET' &&
+        hasSubmittedField(integration, request.query);
+      if (request.method === 'GET' && !isGetSubmission) {
         return htmlResponse(renderForm(integration, request.url, {}, [], preview), 200);
       }
-      if (request.method !== 'POST') {
-        return htmlResponse(renderMethodNotAllowed(), 405, { Allow: 'GET, POST' });
+      if (request.method !== configuredMethod) {
+        return htmlResponse(renderMethodNotAllowed(), 405, {
+          Allow: `GET${configuredMethod === 'POST' ? ', POST' : ''}`,
+        });
       }
 
-      const submitted = parseSubmissionBody(request);
+      const submitted = isGetSubmission
+        ? withoutFrameworkQuery(entriesToRecord(request.url.searchParams.entries()))
+        : await parseSubmissionBody(request);
       if (preview) {
         if (wantsJson(request.request)) {
           return jsonResponse(
@@ -194,13 +221,24 @@ export function createOpportunityIntegrationForms(
             submitted,
             ['Preview mode does not create opportunities or trigger webhooks.'],
             true,
+            true,
           ),
           409,
         );
       }
-      const { opportunity, customFields, errors } = mapSubmission(integration, submitted);
+      const { opportunity, customFields, errors } = mapSubmission(
+        integration,
+        submitted,
+        match.endpoint === 'formJsonNested',
+      );
       if (errors.length > 0) {
-        return htmlResponse(renderForm(integration, request.url, submitted, errors, false), 422);
+        if (wantsJson(request.request) || match.endpoint !== 'form') {
+          return jsonResponse({ success: false, errors }, 422);
+        }
+        return htmlResponse(
+          renderForm(integration, request.url, submitted, errors, false, true),
+          422,
+        );
       }
 
       const created = await options.submit({
@@ -233,11 +271,20 @@ function normalizeIntegration(
   const fields = integration.fields?.length ? integration.fields : defaultFields();
   const seen = new Set<string>();
   for (const field of fields) {
-    if (seen.has(field.key)) {
+    const identity = `${field.key}\u0000${field.sourceName ?? ''}`;
+    if (seen.has(identity)) {
       throw new TypeError(`Integration ${integration.id} contains duplicate field ${field.key}.`);
     }
-    seen.add(field.key);
-    if ((field.type === 'select' || field.type === 'radio') && !field.options?.length) {
+    seen.add(identity);
+    if (field.sourceName !== undefined && !field.sourceName.trim()) {
+      throw new TypeError(`Integration field ${field.key} has an empty sourceName.`);
+    }
+    if (
+      (field.type === 'select' ||
+        field.type === 'radio' ||
+        (field.type === 'checkbox' && field.multiple)) &&
+      !field.options?.length
+    ) {
       throw new TypeError(`Integration field ${field.key} needs at least one option.`);
     }
     if (field.key.startsWith('custom:') && !Number.isInteger(Number(field.key.slice(7)))) {
@@ -250,11 +297,23 @@ function normalizeIntegration(
   return { ...integration, fields };
 }
 
-function matchIntegrationPath(path: string): { id: string; success: boolean } | undefined {
-  const match = /^\/opportunities\/form\/([^/]+?)(\/success)?\/?$/i.exec(path);
+function matchIntegrationPath(
+  path: string,
+):
+  | { id: string; success: boolean; endpoint: NonNullable<MockOpportunityIntegration['endpoint']> }
+  | undefined {
+  const match =
+    /^\/opportunities\/(form|formjson|formjsonnested)\/([^/]+?)(\/success)?\/?$/i.exec(path) ??
+    /^\/(formjson|formjsonnested)\/([^/]+?)(\/success)?\/?$/i.exec(path);
   if (!match) return undefined;
   try {
-    return { id: decodeURIComponent(match[1]), success: Boolean(match[2]) };
+    const endpoint =
+      match[1].toLowerCase() === 'formjson'
+        ? 'formJson'
+        : match[1].toLowerCase() === 'formjsonnested'
+          ? 'formJsonNested'
+          : 'form';
+    return { id: decodeURIComponent(match[2]), success: Boolean(match[3]), endpoint };
   } catch {
     return undefined;
   }
@@ -283,22 +342,71 @@ function sanitizeRequest(
   };
 }
 
-function parseSubmissionBody(request: IntegrationRequest): Record<string, unknown> {
+async function parseSubmissionBody(request: IntegrationRequest): Promise<Record<string, unknown>> {
   if (request.body && typeof request.body === 'object' && !Array.isArray(request.body)) {
     return request.body as Record<string, unknown>;
   }
-  if (typeof request.body !== 'string') return {};
 
-  const contentType = request.request.headers.get('content-type') ?? '';
+  const contentType = (request.request.headers.get('content-type') ?? '').toLowerCase();
+  if (contentType.includes('multipart/form-data')) {
+    try {
+      return entriesToRecord((await request.request.clone().formData()).entries());
+    } catch {
+      return {};
+    }
+  }
+  if (typeof request.body !== 'string') return {};
   if (contentType.includes('application/x-www-form-urlencoded')) {
-    return Object.fromEntries(new URLSearchParams(request.body));
+    return entriesToRecord(new URLSearchParams(request.body).entries());
+  }
+  if (contentType.includes('application/json')) {
+    try {
+      const parsed: unknown = JSON.parse(request.body);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {};
+    } catch {
+      return {};
+    }
   }
   return {};
+}
+
+function entriesToRecord(
+  entries: IterableIterator<[string, FormDataEntryValue]> | IterableIterator<[string, string]>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, entry] of entries) {
+    const value = typeof entry === 'string' ? entry : entry.name;
+    const existing = result[key];
+    result[key] =
+      existing === undefined
+        ? value
+        : Array.isArray(existing)
+          ? [...existing, value]
+          : [existing, value];
+  }
+  return result;
+}
+
+function withoutFrameworkQuery(query: Record<string, unknown>): Record<string, unknown> {
+  const { apikey: _accessKey, preview: _preview, ...submitted } = query;
+  return submitted;
+}
+
+function hasSubmittedField(
+  integration: MockOpportunityIntegration & { fields: MockOpportunityIntegrationField[] },
+  query: Record<string, string>,
+): boolean {
+  return integration.fields.some(
+    (field) => (field.sourceName ?? field.key) in query || field.key in query,
+  );
 }
 
 function mapSubmission(
   integration: MockOpportunityIntegration & { fields?: MockOpportunityIntegrationField[] },
   submitted: Record<string, unknown>,
+  nested = false,
 ): {
   opportunity: Record<string, unknown>;
   customFields: Array<{ CustomFieldId: number; Value: string | null }>;
@@ -309,18 +417,35 @@ function mapSubmission(
   const errors: string[] = [];
 
   for (const field of integration.fields ?? defaultFields()) {
+    const submittedValue = submittedFieldValue(submitted, field, nested);
     const rawValue =
-      field.type === 'hidden' ? field.defaultValue : (submitted[field.key] ?? field.defaultValue);
+      field.type === 'hidden'
+        ? field.defaultValue
+        : submittedValue.found
+          ? submittedValue.value
+          : field.type === 'checkbox'
+            ? undefined
+            : field.defaultValue;
     const value = normalizeFieldValue(field, rawValue);
-    if (field.required && (value === undefined || value === null || value === '')) {
+    const missing =
+      value === undefined ||
+      value === null ||
+      value === '' ||
+      (Array.isArray(value) && value.length === 0) ||
+      (field.type === 'checkbox' && !field.multiple && value === (field.uncheckedValue ?? false));
+    if (field.required && missing) {
       errors.push(`${field.label ?? humanizeFieldKey(field.key)} is required.`);
       continue;
     }
     if (value === undefined) continue;
     if (
-      (field.type === 'select' || field.type === 'radio') &&
+      (field.type === 'select' ||
+        field.type === 'radio' ||
+        (field.type === 'checkbox' && field.multiple)) &&
       value !== '' &&
-      !optionValues(field.options).includes(String(value))
+      !(Array.isArray(value) ? value : [value]).every((item) =>
+        optionValues(field.options).includes(String(item)),
+      )
     ) {
       errors.push(`${field.label ?? humanizeFieldKey(field.key)} has an invalid value.`);
       continue;
@@ -329,7 +454,12 @@ function mapSubmission(
     if (field.key.startsWith('custom:')) {
       customFields.push({
         CustomFieldId: Number(field.key.slice('custom:'.length)),
-        Value: value === null ? null : String(value),
+        Value:
+          value === null
+            ? null
+            : Array.isArray(value)
+              ? value.map(String).join(',')
+              : String(value),
       });
     } else if (field.key.startsWith('extra:')) {
       opportunity[field.key.slice('extra:'.length)] = value;
@@ -344,12 +474,37 @@ function mapSubmission(
 function normalizeFieldValue(
   field: MockOpportunityIntegrationField,
   value: unknown,
-): string | number | boolean | null | undefined {
+): string | number | boolean | null | Array<string | number | boolean> | undefined {
+  if (field.multiple) {
+    const values = (
+      Array.isArray(value)
+        ? value
+        : value === undefined || value === null || value === ''
+          ? []
+          : [value]
+    )
+      .filter(
+        (item): item is string | number | boolean =>
+          typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean',
+      )
+      .map((item) => (typeof item === 'string' ? item.trim() : item));
+    return values;
+  }
   if (field.type === 'checkbox') {
-    const checked = value === true || value === 'true' || value === 'on' || value === '1';
-    return checked ? (field.checkedValue ?? true) : (field.uncheckedValue ?? false);
+    const checkedValue = field.checkedValue ?? true;
+    const values = Array.isArray(value) ? value : [value];
+    const checked = values.some(
+      (item) =>
+        item === true ||
+        item === 'true' ||
+        item === 'on' ||
+        item === '1' ||
+        String(item) === String(checkedValue),
+    );
+    return checked ? checkedValue : (field.uncheckedValue ?? false);
   }
   if (value === undefined || value === null) return value;
+  if (Array.isArray(value)) value = value.at(-1);
   if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
     return undefined;
   }
@@ -359,6 +514,65 @@ function normalizeFieldValue(
     return Number.isFinite(number) ? number : undefined;
   }
   return typeof value === 'string' ? value.trim() : value;
+}
+
+function submittedFieldValue(
+  submitted: Record<string, unknown>,
+  field: MockOpportunityIntegrationField,
+  nested: boolean,
+): { found: boolean; value?: unknown } {
+  const names =
+    field.sourceName && field.sourceName !== field.key
+      ? [field.sourceName, field.key]
+      : [field.key];
+  for (const name of names) {
+    if (Object.prototype.hasOwnProperty.call(submitted, name)) {
+      return { found: true, value: submitted[name] };
+    }
+    const pathValue = valueAtPath(submitted, name);
+    if (pathValue.found) return pathValue;
+    if (nested) {
+      const deepValue = findNestedProperty(submitted, name);
+      if (deepValue.found) return deepValue;
+    }
+  }
+  return { found: false };
+}
+
+function valueAtPath(
+  submitted: Record<string, unknown>,
+  path: string,
+): { found: boolean; value?: unknown } {
+  const segments = path
+    .replace(/\[([^\]]+)\]/g, '.$1')
+    .split('.')
+    .filter(Boolean);
+  if (segments.length < 2) return { found: false };
+  let current: unknown = submitted;
+  for (const segment of segments) {
+    if (
+      !current ||
+      typeof current !== 'object' ||
+      Array.isArray(current) ||
+      !(segment in current)
+    ) {
+      return { found: false };
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return { found: true, value: current };
+}
+
+function findNestedProperty(value: unknown, name: string): { found: boolean; value?: unknown } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { found: false };
+  const record = value as Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(record, name))
+    return { found: true, value: record[name] };
+  for (const child of Object.values(record)) {
+    const found = findNestedProperty(child, name);
+    if (found.found) return found;
+  }
+  return { found: false };
 }
 
 function defaultFields(): MockOpportunityIntegrationField[] {
@@ -377,10 +591,25 @@ function renderForm(
   values: Record<string, unknown>,
   errors: string[],
   preview: boolean,
+  submittedAttempt = false,
 ): string {
   const action = `${url.pathname}?apikey=${encodeURIComponent(integration.accessKey)}${preview ? '&preview=true' : ''}`;
+  const method = integration.method ?? 'post';
+  const enctype = integration.enctype ?? 'application/x-www-form-urlencoded';
+  const frameworkFields =
+    method === 'get'
+      ? `<input name="apikey" type="hidden" value="${escapeHtml(integration.accessKey)}" />${preview ? '<input name="preview" type="hidden" value="true" />' : ''}`
+      : '';
   const fields = (integration.fields ?? defaultFields())
-    .map((field) => renderField(field, values[field.key] ?? field.defaultValue))
+    .map((field) => {
+      const submitted = submittedFieldValue(values, field, false);
+      return renderField(
+        field,
+        submitted.found || (submittedAttempt && field.type === 'checkbox')
+          ? submitted.value
+          : field.defaultValue,
+      );
+    })
     .join('');
   const errorList = errors.length
     ? `<div class="errors" role="alert"><strong>Please fix the following:</strong><ul>${errors.map((error) => `<li>${escapeHtml(error)}</li>`).join('')}</ul></div>`
@@ -394,8 +623,8 @@ function renderForm(
       ${integration.description ? `<p class="description">${escapeHtml(integration.description)}</p>` : ''}
       ${preview ? '<div class="preview-banner"><strong>Preview mode</strong><span>Submissions and webhooks are disabled.</span></div>' : ''}
       ${errorList}
-      <form method="post" action="${escapeHtml(action)}">
-        ${fields}
+      <form method="${method}" enctype="${escapeHtml(enctype)}" action="${escapeHtml(action)}">
+        ${frameworkFields}${fields}
         ${preview ? '<button type="button" disabled>Preview only</button>' : `<button type="submit">${escapeHtml(integration.submitLabel ?? 'Submit')}</button>`}
       </form>
     </main>`,
@@ -403,26 +632,30 @@ function renderForm(
 }
 
 function renderField(field: MockOpportunityIntegrationField, value: unknown): string {
-  const id = `field-${field.key.replace(/[^a-z0-9_-]/gi, '-')}`;
+  const sourceName = field.sourceName ?? field.key;
+  const id = `field-${sourceName.replace(/[^a-z0-9_-]/gi, '-')}`;
   const label = escapeHtml(field.label ?? humanizeFieldKey(field.key));
   const required = field.required ? ' required' : '';
   const placeholder = field.placeholder ? ` placeholder="${escapeHtml(field.placeholder)}"` : '';
   const stringValue = fieldValueString(value);
 
   if (field.type === 'hidden') {
-    return `<input name="${escapeHtml(field.key)}" type="hidden" value="${escapeHtml(stringValue)}" />`;
+    return `<input name="${escapeHtml(sourceName)}" type="hidden" value="${escapeHtml(stringValue)}" />`;
   }
   if (field.type === 'textarea') {
-    return `<label for="${id}">${label}${field.required ? ' *' : ''}</label><textarea id="${id}" name="${escapeHtml(field.key)}"${required}${placeholder}>${escapeHtml(stringValue)}</textarea>`;
+    return `<label for="${id}">${label}${field.required ? ' *' : ''}</label><textarea id="${id}" name="${escapeHtml(sourceName)}"${required}${placeholder}>${escapeHtml(stringValue)}</textarea>`;
   }
   if (field.type === 'select') {
     const options = (field.options ?? [])
       .map((option) => {
         const normalized = normalizeOption(option);
-        return `<option value="${escapeHtml(normalized.value)}"${normalized.value === stringValue ? ' selected' : ''}>${escapeHtml(normalized.label)}</option>`;
+        const selected = (Array.isArray(value) ? value.map(String) : [stringValue]).includes(
+          normalized.value,
+        );
+        return `<option value="${escapeHtml(normalized.value)}"${selected ? ' selected' : ''}>${escapeHtml(normalized.label)}</option>`;
       })
       .join('');
-    return `<label for="${id}">${label}${field.required ? ' *' : ''}</label><select id="${id}" name="${escapeHtml(field.key)}"${required}><option value="">Select…</option>${options}</select>`;
+    return `<label for="${id}">${label}${field.required ? ' *' : ''}</label><select id="${id}" name="${escapeHtml(sourceName)}"${field.multiple ? ' multiple' : ''}${required}>${field.multiple ? '' : '<option value="">Select…</option>'}${options}</select>`;
   }
   if (field.type === 'radio') {
     const options = (field.options ?? [])
@@ -430,17 +663,34 @@ function renderField(field: MockOpportunityIntegrationField, value: unknown): st
         const normalized = normalizeOption(option);
         const optionId = `${id}-${index}`;
         const checked = normalized.value === stringValue ? ' checked' : '';
-        return `<label class="radio" for="${optionId}"><input id="${optionId}" name="${escapeHtml(field.key)}" type="radio" value="${escapeHtml(normalized.value)}"${checked}${required} /> <span>${escapeHtml(normalized.label)}</span></label>`;
+        return `<label class="radio" for="${optionId}"><input id="${optionId}" name="${escapeHtml(sourceName)}" type="radio" value="${escapeHtml(normalized.value)}"${checked}${required} /> <span>${escapeHtml(normalized.label)}</span></label>`;
       })
       .join('');
     return `<fieldset><legend>${label}${field.required ? ' *' : ''}</legend>${options}</fieldset>`;
   }
   if (field.type === 'checkbox') {
-    const checked = value === true || value === 'true' || value === 'on' ? ' checked' : '';
-    return `<label class="checkbox" for="${id}"><input id="${id}" name="${escapeHtml(field.key)}" type="checkbox"${checked}${required} /> <span>${label}</span></label>`;
+    if (field.multiple) {
+      const selected = new Set(
+        (Array.isArray(value) ? value : value === undefined ? [] : [value]).map(String),
+      );
+      const options = (field.options ?? [])
+        .map((option, index) => {
+          const normalized = normalizeOption(option);
+          const optionId = `${id}-${index}`;
+          return `<label class="checkbox" for="${optionId}"><input id="${optionId}" name="${escapeHtml(sourceName)}" type="checkbox" value="${escapeHtml(normalized.value)}"${selected.has(normalized.value) ? ' checked' : ''} /> <span>${escapeHtml(normalized.label)}</span></label>`;
+        })
+        .join('');
+      return `<fieldset${field.required ? ' aria-required="true"' : ''}><legend>${label}${field.required ? ' *' : ''}</legend>${options}</fieldset>`;
+    }
+    const checkedValue = field.checkedValue ?? true;
+    const checked =
+      value === true || value === 'true' || value === 'on' || String(value) === String(checkedValue)
+        ? ' checked'
+        : '';
+    return `<label class="checkbox" for="${id}"><input id="${id}" name="${escapeHtml(sourceName)}" type="checkbox" value="${escapeHtml(String(checkedValue))}"${checked}${required} /> <span>${label}</span></label>`;
   }
 
-  return `<label for="${id}">${label}${field.required ? ' *' : ''}</label><input id="${id}" name="${escapeHtml(field.key)}" type="${field.type ?? 'text'}" value="${escapeHtml(stringValue)}"${required}${placeholder} />`;
+  return `<label for="${id}">${label}${field.required ? ' *' : ''}</label><input id="${id}" name="${escapeHtml(sourceName)}" type="${field.type ?? 'text'}" value="${escapeHtml(stringValue)}"${required}${placeholder} />`;
 }
 
 function renderSuccess(integration: MockOpportunityIntegration | undefined): string {

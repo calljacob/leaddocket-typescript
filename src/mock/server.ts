@@ -1,7 +1,10 @@
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { isIP, type AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 
 import { getAbsoluteFSPath as getSwaggerUiPath } from 'swagger-ui-dist';
@@ -11,7 +14,7 @@ import {
   generateLeadDocketMockData,
   type GenerateLeadDocketMockDataOptions,
   type GeneratedLeadDocketMockData,
-} from './faker';
+} from './faker-core';
 import { discoverLeadDocketIntegrations } from './live-integrations';
 import {
   createLeadDocketMockApi,
@@ -77,11 +80,23 @@ export type MockWebhookPreset = {
   data?: unknown;
 };
 
+export type LeadDocketMockAdminAuth = {
+  username?: string;
+  password: string;
+};
+
+export type LeadDocketMockWebhookEgressPolicy = {
+  allowLoopback?: boolean;
+  allowedOrigins?: string[];
+};
+
 export type LeadDocketMockServerOptions = {
   hostname?: string;
   port?: number;
   cors?: false | string;
   maxBodyBytes?: number;
+  adminAuth?: LeadDocketMockAdminAuth;
+  webhookEgress?: LeadDocketMockWebhookEgressPolicy;
   generatedData?: GenerateLeadDocketMockDataOptions;
   mock?: Omit<LeadDocketMockApiOptions, 'baseUrl'>;
   webhookPresets?: MockWebhookPreset[];
@@ -103,8 +118,14 @@ export type LeadDocketMockServer = {
 
 export type LeadDocketMockServerConfig = {
   schemaVersion?: 1;
-  server?: Pick<LeadDocketMockServerOptions, 'hostname' | 'port' | 'cors' | 'maxBodyBytes'>;
+  server?: Pick<
+    LeadDocketMockServerOptions,
+    'hostname' | 'port' | 'cors' | 'maxBodyBytes' | 'adminAuth' | 'webhookEgress'
+  >;
   seed?: LeadDocketMockApiOptions['seed'];
+  historyLimit?: number;
+  captureHistoryBodies?: boolean;
+  maxRequestBodyBytes?: number;
   generatedData?: GenerateLeadDocketMockDataOptions;
   integrationPreviewUrls?: string[];
   opportunityIntegrations?: LeadDocketMockApiOptions['opportunityIntegrations'];
@@ -122,6 +143,8 @@ export async function startLeadDocketMockServer(
   const port = options.port ?? 4010;
   const cors = options.cors === undefined ? '*' : options.cors;
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+  const adminAuth = normalizeAdminAuth(options.adminAuth);
+  const webhookEgress = normalizeWebhookEgressPolicy(options.webhookEgress);
   const presets = options.webhookPresets ?? defaultWebhookPresets();
 
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
@@ -129,6 +152,9 @@ export async function startLeadDocketMockServer(
   }
   if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes <= 0) {
     throw new RangeError('Mock server maxBodyBytes must be a positive integer.');
+  }
+  if (!isLoopbackHostname(hostname) && !adminAuth) {
+    throw new TypeError('Mock server adminAuth is required when hostname is not loopback.');
   }
 
   const server = createServer();
@@ -141,60 +167,71 @@ export async function startLeadDocketMockServer(
     });
   });
 
-  const address = server.address() as AddressInfo;
-  const origin = `http://${formatHostname(address.address)}:${address.port}`;
-  const webhookExamples = await loadWebhookPayloadExamples();
-  const openApiDocument = await loadMockOpenApiDocument(origin, webhookExamples);
-  const generatedData = options.generatedData
-    ? generateLeadDocketMockData(options.generatedData)
-    : undefined;
-  const mock = createLeadDocketMockApi({
-    ...options.mock,
-    baseUrl: origin,
-    seed: mergeGeneratedSeed(generatedData, options.mock?.seed),
-  });
+  try {
+    const address = server.address() as AddressInfo;
+    const origin = `http://${formatHostname(address.address)}:${address.port}`;
+    const webhookExamples = await loadWebhookPayloadExamples();
+    const openApiDocument = await loadMockOpenApiDocument(origin, webhookExamples);
+    const generatedData = options.generatedData
+      ? generateLeadDocketMockData(options.generatedData)
+      : undefined;
+    const mockOptions = options.mock;
+    const mock = createLeadDocketMockApi({
+      ...mockOptions,
+      baseUrl: origin,
+      seed: mergeGeneratedSeed(generatedData, mockOptions?.seed),
+      webhookFetch: createWebhookFetch(mockOptions?.webhookFetch, webhookEgress),
+    });
+    const enqueueIntegrationImport = createSerialTaskQueue();
 
-  server.on('request', (request, response) => {
-    void handleNodeRequest({
-      request,
-      response,
-      origin,
-      cors,
-      maxBodyBytes,
-      openApiDocument,
-      webhookExamples,
-      mock,
-      presets,
-      subscriptions: options.mock?.webhookSubscriptions ?? [],
-      liveFetch: options.liveFetch,
-      allowInsecureLiveUrls: options.allowInsecureLiveUrls ?? false,
-      onOpportunityIntegrationsImported: options.onOpportunityIntegrationsImported,
-    }).catch((error: unknown) => {
-      if (response.headersSent) {
-        response.destroy(error instanceof Error ? error : undefined);
-        return;
-      }
-      writeJson(response, error instanceof MockServerHttpError ? error.status : 500, {
-        message: error instanceof Error ? error.message : 'Mock server error',
+    server.on('request', (request, response) => {
+      void handleNodeRequest({
+        request,
+        response,
+        origin,
+        cors,
+        maxBodyBytes,
+        adminAuth,
+        webhookEgress,
+        openApiDocument,
+        webhookExamples,
+        mock,
+        presets,
+        subscriptions: mockOptions?.webhookSubscriptions ?? [],
+        liveFetch: options.liveFetch,
+        allowInsecureLiveUrls: options.allowInsecureLiveUrls ?? false,
+        onOpportunityIntegrationsImported: options.onOpportunityIntegrationsImported,
+        enqueueIntegrationImport,
+      }).catch((error: unknown) => {
+        if (response.headersSent) {
+          response.destroy(error instanceof Error ? error : undefined);
+          return;
+        }
+        writeJson(response, error instanceof MockServerHttpError ? error.status : 500, {
+          message: error instanceof Error ? error.message : 'Mock server error',
+        });
       });
     });
-  });
 
-  return {
-    origin,
-    docsUrl: `${origin}/`,
-    adminUrl: `${origin}${ADMIN_PATH}/`,
-    mock,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        server.close((error) => {
-          if (error) reject(error);
-          else resolve();
-        });
-        server.closeAllConnections();
-      }),
-  };
+    return {
+      origin,
+      docsUrl: `${origin}/`,
+      adminUrl: `${origin}${ADMIN_PATH}/`,
+      mock,
+      close: () => closeNodeServer(server),
+    };
+  } catch (error) {
+    await closeNodeServer(server);
+    throw error;
+  }
 }
+
+type NormalizedAdminAuth = Required<LeadDocketMockAdminAuth>;
+type NormalizedWebhookEgressPolicy = {
+  allowLoopback: boolean;
+  allowedOrigins: Set<string>;
+};
+type SerialTaskQueue = <T>(task: () => Promise<T>) => Promise<T>;
 
 type NodeRequestContext = {
   request: IncomingMessage;
@@ -202,6 +239,8 @@ type NodeRequestContext = {
   origin: string;
   cors: false | string;
   maxBodyBytes: number;
+  adminAuth?: NormalizedAdminAuth;
+  webhookEgress: NormalizedWebhookEgressPolicy;
   openApiDocument: Record<string, unknown>;
   webhookExamples: WebhookPayloadExample[];
   mock: LeadDocketMockApi;
@@ -210,6 +249,7 @@ type NodeRequestContext = {
   liveFetch?: typeof fetch;
   allowInsecureLiveUrls: boolean;
   onOpportunityIntegrationsImported?: LeadDocketMockServerOptions['onOpportunityIntegrationsImported'];
+  enqueueIntegrationImport: SerialTaskQueue;
 };
 
 function mergeGeneratedSeed(
@@ -315,6 +355,14 @@ async function handleNodeRequest(context: NodeRequestContext): Promise<void> {
   const { request, response, origin } = context;
   const url = requestUrl(request, origin);
 
+  if (isAdminPath(url.pathname)) {
+    response.setHeader('cache-control', 'no-store');
+    assertAdminAuthenticated(request, response, context.adminAuth);
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method ?? 'GET')) {
+      assertAdminOrigin(request, origin);
+    }
+  }
+
   if (
     request.method === 'GET' &&
     (url.pathname === '/' ||
@@ -363,7 +411,6 @@ async function handleNodeRequest(context: NodeRequestContext): Promise<void> {
   }
 
   if (url.pathname === `${ADMIN_PATH}/data/generate` && request.method === 'POST') {
-    assertAdminOrigin(request, origin);
     const generateOptions = parseGeneratedDataOptions(
       await readJsonBody(request, context.maxBodyBytes),
     );
@@ -396,13 +443,12 @@ async function handleNodeRequest(context: NodeRequestContext): Promise<void> {
   }
 
   if (url.pathname === `${ADMIN_PATH}/webhooks` && request.method === 'POST') {
-    assertAdminOrigin(request, origin);
     const body = await readJsonBody(request, context.maxBodyBytes);
     const webhook = parseAdminWebhook(body);
     let removeTarget: (() => void) | undefined;
     if (webhook.targetUrl) {
       removeTarget = context.mock.addWebhookSubscription({
-        url: normalizeWebhookTarget(webhook.targetUrl),
+        url: normalizeWebhookTarget(webhook.targetUrl, context.webhookEgress),
         events: [webhook.event],
       });
     }
@@ -427,25 +473,28 @@ async function handleNodeRequest(context: NodeRequestContext): Promise<void> {
   }
 
   if (url.pathname === `${ADMIN_PATH}/integrations/import` && request.method === 'POST') {
-    assertAdminOrigin(request, origin);
     const previewUrls = parseIntegrationPreviewUrls(
       await readJsonBody(request, context.maxBodyBytes),
     );
     try {
-      const snapshot = await discoverLeadDocketIntegrations({
-        previewUrls,
-        customFields: context.mock.getStore('customFields'),
-        fetch: context.liveFetch,
-        allowInsecure: context.allowInsecureLiveUrls,
+      const integrations = await context.enqueueIntegrationImport(async () => {
+        const snapshot = await discoverLeadDocketIntegrations({
+          previewUrls,
+          customFields: context.mock.getStore('customFields'),
+          fetch: context.liveFetch,
+          allowInsecure: context.allowInsecureLiveUrls,
+        });
+        const mockIntegrations = snapshot.opportunityIntegrations.map((integration) => ({
+          ...integration,
+          accessKey: `mock-${integration.id}-${randomUUID()}`,
+        }));
+        await context.onOpportunityIntegrationsImported?.(previewUrls, mockIntegrations);
+        context.mock.setOpportunityIntegrations(mockIntegrations);
+        return context.mock.getOpportunityIntegrations();
       });
-      context.mock.setOpportunityIntegrations(snapshot.opportunityIntegrations);
-      await context.onOpportunityIntegrationsImported?.(
-        previewUrls,
-        snapshot.opportunityIntegrations,
-      );
       writeJson(response, 200, {
-        imported: snapshot.opportunityIntegrations.length,
-        integrations: context.mock.getOpportunityIntegrations(),
+        imported: integrations.length,
+        integrations,
       });
     } catch (error) {
       throw new MockServerHttpError(
@@ -479,9 +528,29 @@ function requestUrl(request: IncomingMessage, origin: string): URL {
   return new URL(path, origin);
 }
 
+function isAdminPath(pathname: string): boolean {
+  return pathname === ADMIN_PATH || pathname.startsWith(`${ADMIN_PATH}/`);
+}
+
+function assertAdminAuthenticated(
+  request: IncomingMessage,
+  response: ServerResponse,
+  auth: NormalizedAdminAuth | undefined,
+): void {
+  if (!auth) return;
+  const expected = Buffer.from(
+    `Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString('base64')}`,
+  );
+  const provided = Buffer.from(request.headers.authorization ?? '');
+  if (expected.byteLength === provided.byteLength && timingSafeEqual(expected, provided)) return;
+  response.setHeader('www-authenticate', 'Basic realm="Lead Docket Mock Admin", charset="UTF-8"');
+  throw new MockServerHttpError(401, 'Mock administration authentication is required.');
+}
+
 function assertAdminOrigin(request: IncomingMessage, origin: string): void {
   const requestOrigin = request.headers.origin;
-  if (requestOrigin && requestOrigin !== origin) {
+  const expectedOrigin = request.headers.host ? `http://${request.headers.host}` : origin;
+  if (requestOrigin && requestOrigin !== expectedOrigin) {
     throw new MockServerHttpError(
       403,
       'Cross-origin mock administration requests are not allowed.',
@@ -541,8 +610,11 @@ async function writeFetchResponse(
   response.statusCode = fetchResponse.status;
   fetchResponse.headers.forEach((value, name) => response.setHeader(name, value));
   applyCorsHeaders(response, cors);
-  const body = new Uint8Array(await fetchResponse.arrayBuffer());
-  response.end(body);
+  if (!fetchResponse.body) {
+    response.end();
+    return;
+  }
+  await pipeline(Readable.from(fetchResponse.body), response);
 }
 
 function writeCorsPreflight(response: ServerResponse, cors: false | string): void {
@@ -676,7 +748,7 @@ function renderSwaggerUiPage(): string {
       dom_id: '#swagger-ui',
       deepLinking: true,
       displayRequestDuration: true,
-      persistAuthorization: true,
+      persistAuthorization: false,
       presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
       layout: 'StandaloneLayout'
     });
@@ -726,6 +798,7 @@ function writeHtml(response: ServerResponse, body: string): void {
     'content-security-policy',
     "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'",
   );
+  response.setHeader('cache-control', 'no-store');
   response.setHeader('x-content-type-options', 'nosniff');
   response.end(body);
 }
@@ -798,20 +871,140 @@ function parseAdminWebhook(value: unknown): AdminWebhookInput {
   };
 }
 
-function normalizeWebhookTarget(value: string): string {
+function normalizeAdminAuth(
+  auth: LeadDocketMockAdminAuth | undefined,
+): NormalizedAdminAuth | undefined {
+  if (!auth) return undefined;
+  const username = auth.username ?? 'admin';
+  if (!username || username.includes(':') || /[\r\n]/.test(username)) {
+    throw new TypeError(
+      'Mock server adminAuth.username must be non-empty and cannot contain a colon.',
+    );
+  }
+  if (typeof auth.password !== 'string' || !auth.password || /[\r\n]/.test(auth.password)) {
+    throw new TypeError('Mock server adminAuth.password must be a non-empty string.');
+  }
+  return { username, password: auth.password };
+}
+
+function normalizeWebhookEgressPolicy(
+  policy: LeadDocketMockWebhookEgressPolicy | undefined,
+): NormalizedWebhookEgressPolicy {
+  const allowedOrigins = new Set<string>();
+  for (const value of policy?.allowedOrigins ?? []) {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new TypeError(`Webhook egress allowed origin is invalid: ${value}`);
+    }
+    if (
+      !['http:', 'https:'].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      url.pathname !== '/' ||
+      url.search ||
+      url.hash
+    ) {
+      throw new TypeError(`Webhook egress allowlist entries must be HTTP(S) origins: ${value}`);
+    }
+    allowedOrigins.add(url.origin);
+  }
+  return {
+    allowLoopback: policy?.allowLoopback ?? true,
+    allowedOrigins,
+  };
+}
+
+function createWebhookFetch(
+  fetchImplementation: typeof fetch = globalThis.fetch,
+  policy: NormalizedWebhookEgressPolicy,
+): typeof fetch {
+  return (async (input, init) => {
+    const url = parseHttpUrl(
+      input instanceof Request ? input.url : input.toString(),
+      'Webhook target',
+    );
+    if (!isWebhookTargetAllowed(url, policy)) {
+      throw new Error(
+        `Webhook target origin ${url.origin} is not allowed by the mock server egress policy.`,
+      );
+    }
+    return fetchImplementation(input, { ...init, redirect: 'error' });
+  }) as typeof fetch;
+}
+
+function normalizeWebhookTarget(value: string, policy: NormalizedWebhookEgressPolicy): string {
+  const url = parseHttpUrl(value, 'Webhook target');
+  if (!isWebhookTargetAllowed(url, policy)) {
+    throw new MockServerHttpError(
+      403,
+      `Webhook target origin ${url.origin} is not allowed by the mock server egress policy.`,
+    );
+  }
+  return url.toString();
+}
+
+function parseHttpUrl(value: string, label: string): URL {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new MockServerHttpError(400, 'Webhook target must be a valid absolute URL.');
+    throw new MockServerHttpError(400, `${label} must be a valid absolute URL.`);
   }
   if (!['http:', 'https:'].includes(url.protocol)) {
-    throw new MockServerHttpError(400, 'Webhook target must use HTTP or HTTPS.');
+    throw new MockServerHttpError(400, `${label} must use HTTP or HTTPS.`);
   }
   if (url.username || url.password) {
-    throw new MockServerHttpError(400, 'Webhook target cannot contain embedded credentials.');
+    throw new MockServerHttpError(400, `${label} cannot contain embedded credentials.`);
   }
-  return url.toString();
+  return url;
+}
+
+function isWebhookTargetAllowed(url: URL, policy: NormalizedWebhookEgressPolicy): boolean {
+  return (
+    policy.allowedOrigins.has(url.origin) ||
+    (policy.allowLoopback && isLoopbackHostname(url.hostname))
+  );
+}
+
+function isLoopbackHostname(value: string): boolean {
+  const hostname = value
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '')
+    .toLowerCase();
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) return true;
+  const ipVersion = isIP(hostname);
+  if (ipVersion === 4) return hostname.split('.')[0] === '127';
+  if (ipVersion !== 6) return false;
+  if (hostname === '::1') return true;
+  if (hostname.startsWith('::ffff:')) return isLoopbackHostname(hostname.slice(7));
+  const groups = hostname.split(':');
+  return (
+    groups.length === 8 &&
+    groups.slice(0, 7).every((group) => Number.parseInt(group, 16) === 0) &&
+    Number.parseInt(groups[7] ?? '', 16) === 1
+  );
+}
+
+function createSerialTaskQueue(): SerialTaskQueue {
+  let tail = Promise.resolve();
+  return <T>(task: () => Promise<T>): Promise<T> => {
+    const result = tail.then(task, task);
+    tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
+}
+
+function closeNodeServer(server: Server): Promise<void> {
+  if (!server.listening) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+    server.closeAllConnections();
+  });
 }
 
 function formatHostname(hostname: string): string {

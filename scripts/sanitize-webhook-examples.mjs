@@ -81,6 +81,11 @@ function sanitize(value, key, fileIndex) {
   if (normalized === 'eventtype' || normalized === 'extension') return value;
   if (normalized === 'hostname') return 'mock.leaddocket.local';
   if (normalized === 'requestpath') return '/webhooks/lead-docket';
+  if (normalized === 'phonecallrecordingurl')
+    return 'https://media.example.test/mock/example-recording.mp3';
+  if (normalized === 'phonecalltranscript') return 'Fictional call transcript for webhook testing.';
+  if (normalized === 'contacttimezone') return 'America/Los_Angeles';
+  if (normalized === 'messagesendfromname') return 'Ada Lovelace';
   if (normalized.includes('date') || normalized.includes('time')) return '2025-01-15T12:00:00.000Z';
   if (
     normalized.includes('email') ||

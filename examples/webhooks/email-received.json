@@ -19,7 +19,7 @@
   "MessageSubject": "Example inbound message",
   "MessageSendTo": "ada@example.test",
   "MessageSendFrom": "ada@example.test",
-  "MessageSendFromName": "ada@example.test",
+  "MessageSendFromName": "Ada Lovelace",
   "LeadIntakeName": "Mock Intake Team",
   "LeadIntakeCode": null,
   "LeadIntakeEmail": "intake@example.test",

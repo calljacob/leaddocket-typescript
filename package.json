@@ -58,6 +58,8 @@
     "format": "vp fmt",
     "sanitize:webhook-examples": "node scripts/sanitize-webhook-examples.mjs",
     "check:webhook-examples": "node scripts/sanitize-webhook-examples.mjs --check",
+    "check:mock-metadata": "node scripts/check-mock-metadata.mjs",
+    "check:package-contract": "node scripts/check-package-contract.mjs",
     "mock": "vp pack && node dist/mock/cli.cjs",
     "commitlint": "vite-plus-commitlint",
     "prepare": "vp config"

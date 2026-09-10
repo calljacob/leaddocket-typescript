@@ -3,10 +3,27 @@ import {
   type MockOpportunityIntegration,
   type OpportunityIntegrationForms,
 } from './integrations';
+import { dispatchMockOperation } from './operations';
 import { mockComponentSchemas } from './schemas.gen';
 import { mockRouteDefinitions, type MockRouteDefinition } from './routes.gen';
+import {
+  operationToWebhookKind,
+  projectWebhook,
+  type LeadDocketWebhookPayload,
+  type WebhookKind,
+} from './webhook-payloads';
 
 export type MockHttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+class MockApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'MockApiError';
+  }
+}
 
 export type MockWebhookAction =
   | 'created'
@@ -36,6 +53,7 @@ export type MockWebhookEvent = {
   query?: Record<string, string>;
   requestBody?: unknown;
   data?: unknown;
+  payload?: LeadDocketWebhookPayload;
   occurredAt: string;
 };
 
@@ -130,6 +148,9 @@ export type LeadDocketMockApiOptions = {
   webhookFetch?: typeof fetch;
   webhookTimeoutMs?: number;
   opportunityIntegrations?: MockOpportunityIntegration[];
+  historyLimit?: number;
+  captureHistoryBodies?: boolean;
+  maxRequestBodyBytes?: number;
   latencyMs?: number;
 };
 
@@ -194,6 +215,9 @@ export class LeadDocketMockApi {
   private readonly deliverWebhooks: boolean;
   private readonly webhookFetch: typeof fetch;
   private readonly webhookTimeoutMs: number;
+  private readonly historyLimit: number;
+  private readonly captureHistoryBodies: boolean;
+  private readonly maxRequestBodyBytes: number;
   private readonly latencyMs: number;
   private integrationForms: OpportunityIntegrationForms;
   private readonly stores: Record<MockStoreName, Array<Record<string, unknown>>>;
@@ -209,6 +233,9 @@ export class LeadDocketMockApi {
     this.deliverWebhooks = options.deliverWebhooks ?? true;
     this.webhookFetch = options.webhookFetch ?? globalThis.fetch;
     this.webhookTimeoutMs = options.webhookTimeoutMs ?? 10_000;
+    this.historyLimit = normalizeHistoryLimit(options.historyLimit ?? 200);
+    this.captureHistoryBodies = options.captureHistoryBodies ?? false;
+    this.maxRequestBodyBytes = normalizeBodyLimit(options.maxRequestBodyBytes ?? 1_048_576);
     this.latencyMs = options.latencyMs ?? 0;
     this.stores = createDefaultStores();
     this.customFieldValues = createEmptyCustomFieldValues();
@@ -357,7 +384,10 @@ export class LeadDocketMockApi {
       occurredAt: event.occurredAt ?? new Date().toISOString(),
     };
 
-    this.webhookEvents.push(structuredCloneCompat(webhookEvent));
+    const historyEvent = this.captureHistoryBodies
+      ? webhookEvent
+      : { ...webhookEvent, requestBody: undefined, data: undefined };
+    pushBounded(this.webhookEvents, structuredCloneCompat(historyEvent), this.historyLimit);
     await this.deliverWebhook(webhookEvent);
     return webhookEvent;
   }
@@ -368,11 +398,16 @@ export class LeadDocketMockApi {
     return createOpportunityIntegrationForms({
       integrations,
       recordRequest: (request) => {
-        this.requests.push({
-          id: `req_${this.allocateId()}`,
-          at: new Date().toISOString(),
-          ...request,
-        });
+        pushBounded(
+          this.requests,
+          {
+            id: `req_${this.allocateId()}`,
+            at: new Date().toISOString(),
+            ...request,
+            body: this.captureHistoryBodies ? request.body : undefined,
+          },
+          this.historyLimit,
+        );
       },
       submit: async ({ integration, opportunity, customFields, request }) => {
         const id = this.allocateId();
@@ -401,6 +436,15 @@ export class LeadDocketMockApi {
         this.stores.opportunities.push(created);
         this.captureRecordCustomFields('opportunities', created);
         const hydrated = this.withCustomFields('opportunities', created);
+        const projected = projectWebhook('opportunity-created', {
+          opportunity: hydrated,
+          observability: {
+            apiCallDriven: false,
+            operationId: request.operationId,
+            method: request.method,
+            path: request.path,
+          },
+        });
         await this.emitWebhook({
           event: 'opportunity.created',
           entity: 'opportunity',
@@ -413,6 +457,7 @@ export class LeadDocketMockApi {
           query: request.query,
           requestBody: request.body,
           data: hydrated,
+          payload: projected.payload,
         });
         return hydrated;
       },
@@ -424,13 +469,26 @@ export class LeadDocketMockApi {
       await delay(this.latencyMs);
     }
 
-    const normalized = await normalizeRequest(input, init, this.baseUrl);
+    let normalized: NormalizedRequest;
+    try {
+      normalized = await normalizeRequest(input, init, this.baseUrl, this.maxRequestBodyBytes);
+    } catch (error) {
+      return jsonResponse(
+        { message: error instanceof Error ? error.message : 'Invalid request.' },
+        400,
+      );
+    }
     const integrationResponse = await this.integrationForms.handle(normalized);
     if (integrationResponse) {
       return integrationResponse;
     }
 
-    const match = matchRoute(normalized.method, normalized.path);
+    let match: RouteMatch | undefined;
+    try {
+      match = matchRoute(normalized.method, normalized.path);
+    } catch {
+      return jsonResponse({ message: 'Request path contains invalid encoding.' }, 400);
+    }
     if (!match) {
       return jsonResponse(
         {
@@ -441,21 +499,44 @@ export class LeadDocketMockApi {
       );
     }
 
-    this.requests.push({
-      id: `req_${this.allocateId()}`,
-      method: normalized.method,
-      url: normalized.url.toString(),
-      path: normalized.path,
-      query: normalized.query,
-      pathParams: match.pathParams,
-      operationId: match.route.operationId,
-      body: normalized.body,
-      at: new Date().toISOString(),
-    });
+    const invalidPathParameter = findInvalidIntegerPathParameter(match.pathParams);
+    if (invalidPathParameter) {
+      return jsonResponse(
+        {
+          message: `Invalid path parameter "${invalidPathParameter}": expected a 32-bit integer.`,
+        },
+        400,
+      );
+    }
+
+    const requestBodyError = validateTopLevelRequestBody(
+      match.route.requestSchema,
+      normalized.body,
+    );
+    if (requestBodyError) {
+      return jsonResponse({ message: requestBodyError }, 400);
+    }
+
+    pushBounded(
+      this.requests,
+      {
+        id: `req_${this.allocateId()}`,
+        method: normalized.method,
+        url: normalized.url.toString(),
+        path: normalized.path,
+        query: normalized.query,
+        pathParams: match.pathParams,
+        operationId: match.route.operationId,
+        body: this.captureHistoryBodies ? normalized.body : undefined,
+        at: new Date().toISOString(),
+      },
+      this.historyLimit,
+    );
 
     try {
       const ctx: RequestHandlerContext = { ...normalized, ...match };
       const data = await this.handleRequest(ctx);
+      if (data instanceof Response) return data;
       await this.maybeEmitApiWebhook(ctx, data);
       return jsonResponse(data, match.route.status || 200);
     } catch (error) {
@@ -463,12 +544,36 @@ export class LeadDocketMockApi {
         {
           message: error instanceof Error ? error.message : 'Mock API error',
         },
-        500,
+        error instanceof MockApiError ? error.status : 500,
       );
     }
   }
 
   private async handleRequest(ctx: RequestHandlerContext): Promise<unknown> {
+    const mediaResponse = this.handleMediaRoute(ctx);
+    if (mediaResponse) return mediaResponse;
+
+    const dispatched = dispatchMockOperation(
+      {
+        operationId: ctx.route.operationId,
+        routePath: ctx.route.path,
+        pathParams: ctx.pathParams,
+        query: ctx.query,
+        body: ctx.body,
+      },
+      {
+        getStore: (store) => this.stores[store],
+        allocateId: () => this.allocateId(),
+        now: () => new Date().toISOString(),
+        fail: (status, message) => {
+          throw new MockApiError(status, message);
+        },
+      },
+    );
+    if (dispatched.handled) {
+      return this.hydrateOperationResult(ctx, dispatched.data);
+    }
+
     const operation = ctx.route.operationId.toLowerCase();
     const path = ctx.route.path.toLowerCase();
     const tag = ctx.route.tags[0]?.toLowerCase() ?? '';
@@ -587,11 +692,57 @@ export class LeadDocketMockApi {
     return sampleFromSchema(ctx.route.responseSchema);
   }
 
+  private handleMediaRoute(ctx: RequestHandlerContext): Response | undefined {
+    if (ctx.route.operationId === 'external_calls_getRecording') {
+      return new Response(new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00]), {
+        headers: { 'content-type': 'audio/mp3' },
+      });
+    }
+    if (ctx.route.operationId === 'external_calls_getTranscription') {
+      return new Response('Fictional call transcription generated by the Lead Docket mock.', {
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }
+    if (ctx.route.operationId === 'DownloadFile') {
+      return new Response(new TextEncoder().encode('Lead Docket mock file contents.\n'), {
+        headers: {
+          'content-type': 'application/octet-stream',
+          'content-disposition': 'attachment; filename="mock-file.txt"',
+        },
+      });
+    }
+    return undefined;
+  }
+
+  private hydrateOperationResult(ctx: RequestHandlerContext, data: unknown): unknown {
+    const path = ctx.route.path.toLowerCase();
+    const resource: MockCustomFieldResource | undefined = path.includes('/api/contacts')
+      ? 'contacts'
+      : path.includes('/api/opportunities')
+        ? 'opportunities'
+        : path.includes('/api/leads') && !path.includes('/forms')
+          ? 'leads'
+          : undefined;
+    if (!resource) return data;
+
+    const hydrate = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(hydrate);
+      if (!value || typeof value !== 'object') return value;
+      const record = value as Record<string, unknown>;
+      if (this.stores[resource].includes(record)) return this.withCustomFields(resource, record);
+      if (Array.isArray(record.Records)) return { ...record, Records: record.Records.map(hydrate) };
+      if (record.Data && typeof record.Data === 'object')
+        return { ...record, Data: hydrate(record.Data) };
+      return value;
+    };
+    return hydrate(data);
+  }
+
   private handleLeadFormRoutes(ctx: RequestHandlerContext): unknown {
     if (ctx.method === 'GET') {
       const id = ctx.pathParams.id;
       if (id) {
-        const form = findByAnyId(this.stores.leadForms, id);
+        const form = findByStoreId(this.stores.leadForms, 'leadForms', id);
         return { IsValid: Boolean(form), Data: form };
       }
       return this.stores.leadForms.map((form) => ({ IsValid: true, Data: form }));
@@ -604,7 +755,7 @@ export class LeadDocketMockApi {
     if (ctx.method === 'GET') {
       const id = ctx.pathParams.id;
       if (id) {
-        const status = findByAnyId(this.stores.statuses, id);
+        const status = findByStoreId(this.stores.statuses, 'statuses', id);
         return { IsValid: Boolean(status), Data: status };
       }
       return {
@@ -629,11 +780,13 @@ export class LeadDocketMockApi {
       return { IsValid: true, Data: created };
     }
     if (ctx.method === 'PATCH' || ctx.method === 'PUT') {
-      const updated = upsertById(collection, subStatusId, body);
+      const updated = upsertById(collection, 'substatuses', subStatusId, body);
       return { IsValid: true, Data: updated };
     }
     if (ctx.method === 'DELETE') {
-      const index = collection.findIndex((record) => idMatches(record, subStatusId ?? ''));
+      const index = collection.findIndex((record) =>
+        storeIdMatches('substatuses', record, subStatusId ?? ''),
+      );
       if (index >= 0) collection.splice(index, 1);
       return { IsValid: true, Data: { success: true } };
     }
@@ -697,9 +850,11 @@ export class LeadDocketMockApi {
         );
       }
 
-      return this.withCustomFieldsForStore(store, [
-        findByAnyId(collection, id) ?? sampleRecordForStore(store, Number(id) || this.allocateId()),
-      ])[0];
+      const record = findByStoreId(collection, store, id);
+      if (!record) {
+        throw new MockApiError(404, `${STORE_TO_ENTITY[store]} ${id} was not found.`);
+      }
+      return this.withCustomFieldsForStore(store, [record])[0];
     }
 
     if (ctx.method === 'POST') {
@@ -724,7 +879,7 @@ export class LeadDocketMockApi {
 
     if (ctx.method === 'PUT' || ctx.method === 'PATCH') {
       if (operation.includes('markcomplete')) {
-        const task = upsertById(collection, id, {
+        const task = upsertById(collection, store, id, {
           ...body,
           id: numberOrString(id),
           completed: true,
@@ -735,11 +890,15 @@ export class LeadDocketMockApi {
 
       if (operation.includes('lock') || operation.includes('unlock')) {
         const locked = operation.includes('lock') && !operation.includes('unlock');
-        const record = upsertById(collection, id, { ...body, id: numberOrString(id), locked });
+        const record = upsertById(collection, store, id, {
+          ...body,
+          id: numberOrString(id),
+          locked,
+        });
         return responseForMutation(ctx.route.responseSchema, record);
       }
 
-      const updated = upsertById(collection, id, { ...body, id: numberOrString(id) });
+      const updated = upsertById(collection, store, id, { ...body, id: numberOrString(id) });
       this.captureRecordCustomFields(store, updated);
       return responseForMutation(
         ctx.route.responseSchema,
@@ -749,7 +908,7 @@ export class LeadDocketMockApi {
 
     if (ctx.method === 'DELETE') {
       if (id) {
-        const index = collection.findIndex((record) => idMatches(record, id));
+        const index = collection.findIndex((record) => storeIdMatches(store, record, id));
         if (index >= 0) {
           collection.splice(index, 1);
         }
@@ -857,7 +1016,7 @@ export class LeadDocketMockApi {
 
     const values = customFieldArrayToValueMap(body.CustomFields ?? body.customFields);
     const store = storeForCustomFieldResource(resource);
-    const record = findByAnyId(this.stores[store], recordKey);
+    const record = findByStoreId(this.stores[store], store, recordKey);
     const valueKey = String(record ? (getRecordIdentifier(record) ?? recordKey) : recordKey);
     this.customFieldValues[resource][valueKey] = {
       ...this.customFieldValues[resource][valueKey],
@@ -918,17 +1077,30 @@ export class LeadDocketMockApi {
   }
 
   private async maybeEmitApiWebhook(ctx: RequestHandlerContext, data: unknown): Promise<void> {
-    if (ctx.method === 'GET') {
-      return;
-    }
+    if (ctx.method === 'GET') return;
+    const kind = operationToWebhookKind({
+      operationId: ctx.route.operationId,
+      method: ctx.method,
+      path: ctx.route.path,
+    });
+    if (!kind) return;
 
-    const entity = inferEntity(ctx.route);
-    const action = inferAction(ctx);
+    const descriptor = internalWebhookDescriptor(kind);
+    const projected = projectWebhook(kind, {
+      record: webhookRecord(data),
+      eventByUser: asRecord(ctx.body).EventByUser,
+      observability: {
+        apiCallDriven: true,
+        operationId: ctx.route.operationId,
+        method: ctx.method,
+        path: ctx.path,
+      },
+    });
 
     await this.emitWebhook({
-      event: `${entity}.${action}`,
-      entity,
-      action,
+      event: descriptor.event,
+      entity: descriptor.entity,
+      action: descriptor.action,
       apiCallDriven: true,
       operationId: ctx.route.operationId,
       method: ctx.method,
@@ -937,6 +1109,7 @@ export class LeadDocketMockApi {
       query: ctx.query,
       requestBody: ctx.body,
       data,
+      payload: projected.payload,
     });
   }
 
@@ -972,7 +1145,8 @@ export class LeadDocketMockApi {
                   ...JSON_HEADERS,
                   ...headersToObject(subscription.headers),
                 },
-                body: JSON.stringify(event),
+                body: JSON.stringify(event.payload ?? event),
+                redirect: 'error',
                 signal: AbortSignal.timeout(this.webhookTimeoutMs),
               });
             }),
@@ -993,27 +1167,35 @@ export class LeadDocketMockApi {
     const attemptedAt = new Date(startedAt).toISOString();
     try {
       const response = await deliver();
-      this.webhookDeliveries.push({
-        id: `delivery_${this.allocateId()}`,
-        eventId: event.id,
-        target,
-        kind,
-        attemptedAt,
-        durationMs: Date.now() - startedAt,
-        ok: response ? response.ok : true,
-        status: response?.status,
-      });
+      pushBounded(
+        this.webhookDeliveries,
+        {
+          id: `delivery_${this.allocateId()}`,
+          eventId: event.id,
+          target,
+          kind,
+          attemptedAt,
+          durationMs: Date.now() - startedAt,
+          ok: response ? response.ok : true,
+          status: response?.status,
+        },
+        this.historyLimit,
+      );
     } catch (error) {
-      this.webhookDeliveries.push({
-        id: `delivery_${this.allocateId()}`,
-        eventId: event.id,
-        target,
-        kind,
-        attemptedAt,
-        durationMs: Date.now() - startedAt,
-        ok: false,
-        error: error instanceof Error ? error.message : 'Webhook delivery failed',
-      });
+      pushBounded(
+        this.webhookDeliveries,
+        {
+          id: `delivery_${this.allocateId()}`,
+          eventId: event.id,
+          target,
+          kind,
+          attemptedAt,
+          durationMs: Date.now() - startedAt,
+          ok: false,
+          error: error instanceof Error ? error.message : 'Webhook delivery failed',
+        },
+        this.historyLimit,
+      );
     }
   }
 
@@ -1021,6 +1203,26 @@ export class LeadDocketMockApi {
     this.nextId += 1;
     return this.nextId;
   }
+}
+
+function normalizeBodyLimit(value: number): number {
+  if (!Number.isInteger(value) || value <= 0 || value > 10_485_760) {
+    throw new RangeError('maxRequestBodyBytes must be an integer between 1 and 10485760.');
+  }
+  return value;
+}
+
+function normalizeHistoryLimit(value: number): number {
+  if (!Number.isInteger(value) || value < 0 || value > 10_000) {
+    throw new RangeError('historyLimit must be an integer between 0 and 10000.');
+  }
+  return value;
+}
+
+function pushBounded<T>(values: T[], value: T, limit: number): void {
+  if (limit === 0) return;
+  values.push(value);
+  if (values.length > limit) values.splice(0, values.length - limit);
 }
 
 export function createLeadDocketMockApi(options?: LeadDocketMockApiOptions): LeadDocketMockApi {
@@ -1031,6 +1233,7 @@ export function createLeadDocketMockFetch(options?: LeadDocketMockApiOptions): t
   return createLeadDocketMockApi(options).fetch;
 }
 
+export * from './webhook-payloads';
 export type {
   MockOpportunityIntegration,
   MockOpportunityIntegrationField,
@@ -1302,66 +1505,110 @@ function sampleRecordForStore(store: MockStoreName, id: number): Record<string, 
 }
 
 function sampleContact(id: number): Record<string, unknown> {
+  const createdDate = new Date(0).toISOString();
   return {
+    Id: id,
     id,
+    ContactId: id,
     contactId: id,
+    FirstName: 'Mock',
     firstName: 'Mock',
+    LastName: `Contact ${id}`,
     lastName: `Contact ${id}`,
+    FullName: `Mock Contact ${id}`,
     name: `Mock Contact ${id}`,
-    email: `contact${id}@example.com`,
-    phone: '5551234567',
+    Email: `contact${id}@example.test`,
+    email: `contact${id}@example.test`,
+    MobilePhone: '+15550100001',
+    phone: '+15550100001',
+    Code: `CONTACT-${id}`,
     code: `CONTACT-${id}`,
-    createdDate: new Date(0).toISOString(),
-    lastUpdated: new Date(0).toISOString(),
+    CreatedDate: createdDate,
+    createdDate,
+    LastUpdateDate: createdDate,
+    lastUpdated: createdDate,
   };
 }
 
 function sampleLead(id: number): Record<string, unknown> {
+  const createdDate = new Date(0).toISOString();
   return {
+    Id: id,
     id,
+    LeadId: id,
     leadId: id,
+    ContactId: id,
     contactId: id,
+    FirstName: 'Mock',
     firstName: 'Mock',
+    LastName: `Lead ${id}`,
     lastName: `Lead ${id}`,
     name: `Mock Lead ${id}`,
+    StatusId: 1,
     statusId: 1,
+    Status: 'New',
     status: 'New',
-    source: 'Website',
+    MarketingSource: 'Example Website',
+    source: 'Example Website',
+    Code: `LEAD-${id}`,
     code: `LEAD-${id}`,
-    createdDate: new Date(0).toISOString(),
-    lastUpdated: new Date(0).toISOString(),
+    CreatedDate: createdDate,
+    createdDate,
+    LastUpdateDate: createdDate,
+    lastUpdated: createdDate,
   };
 }
 
 function sampleOpportunity(id: number): Record<string, unknown> {
+  const createdDate = new Date(0).toISOString();
   return {
+    Id: id,
     id,
+    OpportunityId: id,
     opportunityId: id,
+    FirstName: 'Mock',
     firstName: 'Mock',
+    LastName: `Opportunity ${id}`,
     lastName: `Opportunity ${id}`,
+    OpportunityName: `Mock Opportunity ${id}`,
     name: `Mock Opportunity ${id}`,
+    Status: 'Open',
     status: 'Open',
-    createdDate: new Date(0).toISOString(),
+    Processed: false,
+    CreatedDate: createdDate,
+    createdDate,
   };
 }
 
 function sampleTask(id: number): Record<string, unknown> {
+  const dueDate = new Date(0).toISOString();
   return {
+    Id: id,
     id,
+    TaskId: id,
     taskId: id,
+    LeadId: 1,
     leadId: 1,
+    Name: `Mock Task ${id}`,
     subject: `Mock Task ${id}`,
-    dueDate: new Date(0).toISOString(),
+    DueDate: dueDate,
+    dueDate,
+    Completed: false,
     completed: false,
   };
 }
 
 function sampleUser(id: number): Record<string, unknown> {
   return {
+    Id: id,
     id,
+    UserId: id,
     userId: id,
+    Name: `Mock User ${id}`,
     name: `Mock User ${id}`,
-    email: `user${id}@example.com`,
+    Email: `user${id}@example.test`,
+    email: `user${id}@example.test`,
+    Active: true,
     active: true,
   };
 }
@@ -1396,15 +1643,46 @@ function sampleSubstatus(id: number): Record<string, unknown> {
 }
 
 function sampleReferral(id: number): Record<string, unknown> {
-  return { id, referralId: id, name: `Mock Referral ${id}`, externalCode: `REF-${id}` };
+  return {
+    Id: id,
+    id,
+    ReferralId: id,
+    referralId: id,
+    Name: `Mock Referral ${id}`,
+    name: `Mock Referral ${id}`,
+    ExternalCode: `REF-${id}`,
+    externalCode: `REF-${id}`,
+  };
 }
 
 function sampleSettlement(id: number): Record<string, unknown> {
-  return { id, settlementId: id, leadId: 1, grossAmount: 10000, feeAmount: 3333.33 };
+  return {
+    Id: id,
+    id,
+    SettlementId: id,
+    settlementId: id,
+    LeadId: 1,
+    leadId: 1,
+    GrossAmount: 10_000,
+    grossAmount: 10_000,
+    FeeAmount: 3333.33,
+    feeAmount: 3333.33,
+  };
 }
 
 function sampleExpense(id: number): Record<string, unknown> {
-  return { id, expenseId: id, leadId: 1, amount: 100, description: `Mock Expense ${id}` };
+  return {
+    Id: id,
+    id,
+    ExpenseId: id,
+    expenseId: id,
+    LeadId: 1,
+    leadId: 1,
+    Amount: 100,
+    amount: 100,
+    Description: `Mock Expense ${id}`,
+    description: `Mock Expense ${id}`,
+  };
 }
 
 function routeSpecificity(path: string): number {
@@ -1456,13 +1734,14 @@ async function normalizeRequest(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
   baseUrl: string,
+  maxBodyBytes: number,
 ): Promise<NormalizedRequest> {
   const request =
     input instanceof Request
       ? new Request(input, init)
       : new Request(new URL(String(input), baseUrl), init);
   const url = new URL(request.url, baseUrl);
-  const body = await parseRequestBody(request);
+  const body = await parseRequestBody(request, maxBodyBytes);
 
   return {
     request,
@@ -1474,16 +1753,27 @@ async function normalizeRequest(
   };
 }
 
-async function parseRequestBody(request: Request): Promise<unknown> {
+async function parseRequestBody(request: Request, maxBodyBytes: number): Promise<unknown> {
   if (request.method === 'GET' || request.method === 'HEAD') {
     return undefined;
   }
 
   const text = await request.clone().text();
+  if (new TextEncoder().encode(text).byteLength > maxBodyBytes) {
+    throw new RangeError(`Request body exceeds the ${maxBodyBytes} byte limit.`);
+  }
   if (!text) {
     return undefined;
   }
 
+  const contentType = request.headers.get('content-type') ?? '';
+  if (contentType.includes('json')) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new TypeError('Request body must be valid JSON.');
+    }
+  }
   try {
     return JSON.parse(text);
   } catch {
@@ -1492,7 +1782,7 @@ async function parseRequestBody(request: Request): Promise<unknown> {
 }
 
 function jsonResponse(data: unknown, status: number): Response {
-  if (status === 204 || status === 205) {
+  if (data === undefined || status === 204 || status === 205) {
     return new Response(null, { status });
   }
 
@@ -1505,9 +1795,9 @@ function normalizeRecord(
   defaults: Record<string, unknown> = {},
 ): Record<string, unknown> {
   const normalized = { ...defaults, ...structuredCloneCompat(record) };
-  if (normalized.id === undefined) {
-    normalized.id = allocateId();
-  }
+  const id = normalized.Id ?? normalized.id ?? allocateId();
+  normalized.Id = id;
+  normalized.id = id;
   return normalized;
 }
 
@@ -1543,20 +1833,79 @@ function firstDefinedPathParam(
   return Object.values(pathParams)[0];
 }
 
-function findByAnyId(
+function validateTopLevelRequestBody(schema: unknown, body: unknown): string | undefined {
+  if (!schema) return undefined;
+  if (body === undefined) return 'Request body is required.';
+  const resolved = resolveRequestSchema(schema);
+  if (!resolved) return undefined;
+  if (resolved.type === 'array' && !Array.isArray(body)) return 'Request body must be an array.';
+  if (
+    (resolved.type === 'object' || resolved.properties) &&
+    (!body || typeof body !== 'object' || Array.isArray(body))
+  ) {
+    return 'Request body must be an object.';
+  }
+  if (
+    body &&
+    typeof body === 'object' &&
+    !Array.isArray(body) &&
+    Array.isArray(resolved.required)
+  ) {
+    const record = body as Record<string, unknown>;
+    const missing = resolved.required.filter(
+      (property): property is string =>
+        typeof property === 'string' &&
+        (record[property] === undefined || record[property] === null || record[property] === ''),
+    );
+    if (missing.length > 0)
+      return `Request body is missing required fields: ${missing.join(', ')}.`;
+  }
+  return undefined;
+}
+
+function resolveRequestSchema(schema: unknown): Record<string, unknown> | undefined {
+  if (!schema || typeof schema !== 'object') return undefined;
+  const record = schema as Record<string, unknown>;
+  if (typeof record.$ref === 'string') {
+    const name = record.$ref.split('/').pop();
+    const resolved = name
+      ? mockComponentSchemas[name as keyof typeof mockComponentSchemas]
+      : undefined;
+    return resolved && typeof resolved === 'object'
+      ? (resolved as Record<string, unknown>)
+      : undefined;
+  }
+  return record;
+}
+
+function findInvalidIntegerPathParameter(pathParams: Record<string, string>): string | undefined {
+  for (const [name, value] of Object.entries(pathParams)) {
+    if (!name.toLowerCase().endsWith('id')) continue;
+    if (!/^-?\d+$/.test(value)) return name;
+    const numeric = Number(value);
+    if (!Number.isInteger(numeric) || numeric < -2_147_483_648 || numeric > 2_147_483_647) {
+      return name;
+    }
+  }
+  return undefined;
+}
+
+function findByStoreId(
   collection: Array<Record<string, unknown>>,
+  store: MockStoreName,
   id: string,
 ): Record<string, unknown> | undefined {
-  return collection.find((record) => idMatches(record, id));
+  return collection.find((record) => storeIdMatches(store, record, id));
 }
 
 function upsertById(
   collection: Array<Record<string, unknown>>,
+  store: MockStoreName,
   id: string | undefined,
   patch: Record<string, unknown>,
 ): Record<string, unknown> {
   if (id) {
-    const existing = collection.find((record) => idMatches(record, id));
+    const existing = collection.find((record) => storeIdMatches(store, record, id));
     if (existing) {
       Object.assign(existing, patch, { lastUpdated: new Date().toISOString() });
       return existing;
@@ -1568,13 +1917,32 @@ function upsertById(
   return created;
 }
 
-function idMatches(record: Record<string, unknown>, id: string): boolean {
-  return (
-    Object.entries(record).some(([key, value]) => {
-      const normalizedKey = key.toLowerCase();
-      return (normalizedKey.endsWith('id') || normalizedKey === 'code') && String(value) === id;
-    }) || String(record.id) === id
-  );
+function storeIdMatches(
+  store: MockStoreName,
+  record: Record<string, unknown>,
+  id: string,
+): boolean {
+  const identityKeys: Record<MockStoreName, string[]> = {
+    contacts: ['Id', 'id', 'ContactId', 'contactId'],
+    leads: ['Id', 'id', 'LeadId', 'leadId'],
+    opportunities: ['Id', 'id', 'OpportunityId', 'opportunityId'],
+    tasks: ['Id', 'id', 'TaskId', 'taskId'],
+    users: ['Id', 'id', 'UserId', 'userId'],
+    statuses: ['Id', 'id', 'StatusId', 'statusId'],
+    substatuses: ['Id', 'id', 'SubStatusId', 'subStatusId', 'substatusId'],
+    referrals: ['Id', 'id', 'ReferralId', 'referralId'],
+    referralGroups: ['Id', 'id', 'ReferralGroupId', 'referralGroupId'],
+    settlements: ['Id', 'id', 'SettlementId', 'settlementId'],
+    expenses: ['Id', 'id', 'ExpenseId', 'expenseId'],
+    leadForms: ['LeadFormId', 'leadFormId', 'Id', 'id'],
+    messages: ['Id', 'id', 'MessageId', 'messageId'],
+    externalCalls: ['Id', 'id', 'ExternalCallId', 'externalCallId'],
+    leadRoles: ['LeadRoleId', 'leadRoleId', 'Id', 'id'],
+    leadSources: ['LeadSourceId', 'leadSourceId', 'Id', 'id'],
+    customFields: ['Id', 'id'],
+    contactCustomFields: ['Id', 'id'],
+  };
+  return identityKeys[store].some((key) => String(record[key]) === id);
 }
 
 function numberOrString(value: string | undefined): string | number | undefined {
@@ -1583,7 +1951,7 @@ function numberOrString(value: string | undefined): string | number | undefined 
   }
 
   const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : value;
+  return Number.isSafeInteger(numeric) ? numeric : value;
 }
 
 function maybePagedResponse(schema: unknown, collection: Array<Record<string, unknown>>): unknown {
@@ -1753,55 +2121,62 @@ function refName(schema: unknown): string | undefined {
   return undefined;
 }
 
-function inferEntity(route: MockRouteDefinition): string {
-  const path = route.path.toLowerCase();
-  const tag = route.tags[0] ?? 'api';
-  if (route.operationId.toLowerCase().startsWith('leadforms_')) return 'leadForm';
-
-  const pathEntityMap: Array<[string, string]> = [
-    ['/contacts', 'contact'],
-    ['/leadsources', 'leadSource'],
-    ['/leadroles', 'leadRole'],
-    ['/leads', 'lead'],
-    ['/opportunities', 'opportunity'],
-    ['/tasks', 'task'],
-    ['/referralgroups', 'referralGroup'],
-    ['/referrals', 'referral'],
-    ['/settlements', 'settlement'],
-    ['/expenses', 'expense'],
-    ['/statuses', 'status'],
-    ['/substatus', 'substatus'],
-    ['/leadforms', 'leadForm'],
-    ['/messages', 'message'],
-    ['/externalcalls', 'externalCall'],
-    ['/customfields', 'customField'],
-  ];
-
-  for (const [fragment, entity] of pathEntityMap) {
-    if (path.includes(fragment)) {
-      return entity;
-    }
+function webhookRecord(data: unknown): Record<string, unknown> | undefined {
+  if (Array.isArray(data)) {
+    return data.find((item): item is Record<string, unknown> =>
+      Boolean(item && typeof item === 'object' && !Array.isArray(item)),
+    );
   }
-
-  return tag.charAt(0).toLowerCase() + tag.slice(1);
+  if (!data || typeof data !== 'object') return undefined;
+  const record = data as Record<string, unknown>;
+  if (record.Data && typeof record.Data === 'object' && !Array.isArray(record.Data)) {
+    return record.Data as Record<string, unknown>;
+  }
+  return record;
 }
 
-function inferAction(ctx: RequestHandlerContext): MockWebhookAction {
-  const operation = ctx.route.operationId.toLowerCase();
-
-  if (ctx.method === 'DELETE' || operation.includes('delete')) return 'deleted';
-  if (operation.includes('markcomplete')) return 'completed';
-  if (operation.includes('send')) return 'sent';
-  if (operation.includes('start')) return 'started';
-  if (operation.includes('end')) return 'ended';
-  if (operation.includes('unlock')) return 'unlocked';
-  if (operation.includes('lock')) return 'locked';
-  if (operation.includes('disregard')) return 'disregarded';
-  if (operation.includes('processed')) return 'processed';
-  if (operation.includes('statuschange') || operation.includes('advance')) return 'changed';
-  if (ctx.method === 'POST') return 'created';
-  if (ctx.method === 'PUT' || ctx.method === 'PATCH') return 'updated';
-  return 'triggered';
+function internalWebhookDescriptor(kind: WebhookKind): {
+  event: string;
+  entity: string;
+  action: MockWebhookAction;
+} {
+  const descriptors: Record<
+    WebhookKind,
+    { event: string; entity: string; action: MockWebhookAction }
+  > = {
+    'contact-added': { event: 'contact.created', entity: 'contact', action: 'created' },
+    'contact-edited': { event: 'contact.updated', entity: 'contact', action: 'updated' },
+    'data-sync-completed': { event: 'dataSync.completed', entity: 'dataSync', action: 'completed' },
+    'email-received': { event: 'email.received', entity: 'email', action: 'triggered' },
+    'file-uploaded': { event: 'file.uploaded', entity: 'file', action: 'created' },
+    'lead-created': { event: 'lead.created', entity: 'lead', action: 'created' },
+    'lead-edited': { event: 'lead.updated', entity: 'lead', action: 'updated' },
+    'lead-sent-to-external-system': {
+      event: 'lead.processed',
+      entity: 'lead',
+      action: 'processed',
+    },
+    'lead-status-changed': { event: 'lead.status_changed', entity: 'lead', action: 'changed' },
+    'note-added': { event: 'note.created', entity: 'note', action: 'created' },
+    'opportunity-converted-to-lead': {
+      event: 'opportunity.converted',
+      entity: 'opportunity',
+      action: 'changed',
+    },
+    'opportunity-created': {
+      event: 'opportunity.created',
+      entity: 'opportunity',
+      action: 'created',
+    },
+    'opportunity-disregarded': {
+      event: 'opportunity.disregarded',
+      entity: 'opportunity',
+      action: 'disregarded',
+    },
+    'tag-added-to-contact': { event: 'contact.tag_added', entity: 'contact', action: 'updated' },
+    'text-received': { event: 'text.received', entity: 'text', action: 'triggered' },
+  };
+  return descriptors[kind];
 }
 
 function headersToObject(headers: HeadersInit | undefined): Record<string, string> {

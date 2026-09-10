@@ -279,6 +279,172 @@ describe('Lead Docket opportunity integrations', () => {
     expect(invalidOption.status).toBe(422);
   });
 
+  it('separates source names from destinations and handles repeated and multipart values', async () => {
+    const fidelityIntegration: MockOpportunityIntegration = {
+      id: 41,
+      accessKey: 'fidelity-key',
+      name: 'Fidelity Intake',
+      method: 'post',
+      enctype: 'multipart/form-data',
+      fields: [
+        { key: 'FirstName', sourceName: 'Applicant_First', required: true },
+        { key: 'LastName', sourceName: 'Applicant_Last', required: true },
+        {
+          key: 'extra:Topics',
+          sourceName: 'topic_ids',
+          type: 'select',
+          multiple: true,
+          options: [
+            { label: 'Auto', value: 'auto' },
+            { label: 'Work', value: 'work' },
+          ],
+        },
+        {
+          key: 'extra:Channels',
+          sourceName: 'channels',
+          type: 'checkbox',
+          multiple: true,
+          required: true,
+          options: ['Email', 'Phone'],
+        },
+        {
+          key: 'extra:Consent',
+          sourceName: 'terms_accepted',
+          label: 'Terms accepted',
+          type: 'checkbox',
+          required: true,
+          checkedValue: 'yes',
+          uncheckedValue: 'no',
+          defaultValue: true,
+        },
+      ],
+    };
+    const mock = createLeadDocketMockApi({ opportunityIntegrations: [fidelityIntegration] });
+
+    const form = await mock.fetch('/opportunities/form/41?apikey=fidelity-key');
+    const html = await form.text();
+    expect(html).toContain('method="post"');
+    expect(html).toContain('enctype="multipart/form-data"');
+    expect(html).toContain('name="Applicant_First"');
+    expect(html).toContain('name="topic_ids" multiple');
+    expect(html).toContain('name="terms_accepted" type="checkbox" value="yes" checked required');
+
+    const body = new FormData();
+    body.append('Applicant_First', 'Katherine');
+    body.append('Applicant_Last', 'Johnson');
+    body.append('topic_ids', 'auto');
+    body.append('topic_ids', 'work');
+    body.append('channels', 'Email');
+    body.append('channels', 'Phone');
+    body.append('terms_accepted', 'yes');
+    body.append('terms_accepted', 'no');
+    const response = await mock.fetch('/opportunities/form/41?apikey=fidelity-key', {
+      method: 'POST',
+      headers: { accept: 'application/json' },
+      body,
+    });
+    expect(response.status).toBe(201);
+    expect(
+      mock.getStore('opportunities').find((record) => record.FirstName === 'Katherine'),
+    ).toMatchObject({
+      LastName: 'Johnson',
+      Topics: ['auto', 'work'],
+      Channels: ['Email', 'Phone'],
+      Consent: 'yes',
+    });
+
+    const unchecked = await mock.fetch('/opportunities/form/41?apikey=fidelity-key', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({
+        Applicant_First: 'Default',
+        Applicant_Last: 'Unchecked',
+        channels: ['Email'],
+      }),
+    });
+    expect(unchecked.status).toBe(422);
+    expect(await unchecked.json()).toEqual({
+      success: false,
+      errors: ['Terms accepted is required.'],
+    });
+  });
+
+  it('supports flat and nested JSON endpoint paths with JSON validation responses', async () => {
+    const jsonIntegration: MockOpportunityIntegration = {
+      id: 42,
+      accessKey: 'json-key',
+      name: 'Nested JSON Intake',
+      endpoint: 'formJsonNested',
+      enctype: 'application/json',
+      fields: [
+        { key: 'FirstName', sourceName: 'GivenName', required: true },
+        { key: 'LastName', sourceName: 'FamilyName', required: true },
+        {
+          key: 'extra:Tags',
+          sourceName: 'Tags',
+          type: 'select',
+          multiple: true,
+          options: ['one', 'two'],
+        },
+      ],
+    };
+    const mock = createLeadDocketMockApi({ opportunityIntegrations: [jsonIntegration] });
+    expect(mock.getOpportunityIntegrationUrl(42)).toBe(
+      'https://mock.leaddocket.local/opportunities/FormJsonNested/42?apikey=json-key',
+    );
+
+    const nested = await mock.fetch('/FormJsonNested/42?apikey=json-key', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        Applicant: { GivenName: 'Dorothy', FamilyName: 'Vaughan' },
+        Tags: ['one', 'two'],
+      }),
+    });
+    expect(nested.status).toBe(201);
+    expect(await nested.json()).toMatchObject({
+      opportunity: { FirstName: 'Dorothy', LastName: 'Vaughan', Tags: ['one', 'two'] },
+    });
+
+    const invalid = await mock.fetch('/Opportunities/FormJson/42?apikey=json-key', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ GivenName: 'Missing last name' }),
+    });
+    expect(invalid.status).toBe(422);
+    expect(invalid.headers.get('content-type')).toContain('application/json');
+    expect(await invalid.json()).toEqual({ success: false, errors: ['Last Name is required.'] });
+  });
+
+  it('preserves repeated URL-encoded keys', async () => {
+    const repeatedIntegration: MockOpportunityIntegration = {
+      id: 43,
+      accessKey: 'repeated-key',
+      name: 'Repeated Values',
+      fields: [
+        { key: 'FirstName', required: true },
+        {
+          key: 'extra:Selections',
+          sourceName: 'selection',
+          type: 'select',
+          multiple: true,
+          options: ['a', 'b'],
+        },
+      ],
+    };
+    const mock = createLeadDocketMockApi({ opportunityIntegrations: [repeatedIntegration] });
+    const body = new URLSearchParams({ FirstName: 'Repeated' });
+    body.append('selection', 'a');
+    body.append('selection', 'b');
+    const response = await mock.fetch('/opportunities/form/43?apikey=repeated-key', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+      body,
+    });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ opportunity: { Selections: ['a', 'b'] } });
+  });
+
   it('routes generated lead-form operations to the leadForms store', async () => {
     const mock = createLeadDocketMockApi();
     const initialLeadCount = mock.getStore('leads').length;
@@ -293,10 +459,6 @@ describe('Lead Docket opportunity integrations', () => {
     expect(response.ok).toBe(true);
     expect(mock.getStore('leadForms')).toHaveLength(initialFormCount + 1);
     expect(mock.getStore('leads')).toHaveLength(initialLeadCount);
-    expect(mock.getWebhookEvents()[0]).toMatchObject({
-      event: 'leadForm.created',
-      entity: 'leadForm',
-      action: 'created',
-    });
+    expect(mock.getWebhookEvents()).toHaveLength(0);
   });
 });

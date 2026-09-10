@@ -5,6 +5,9 @@
     "port": 4010,
     "cors": "*"
   },
+  "historyLimit": 200,
+  "captureHistoryBodies": false,
+  "maxRequestBodyBytes": 1048576,
   "generatedData": {
     "seed": 12345,
     "contacts": 20,

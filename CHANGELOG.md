@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Corrected generated lead-form route handling so `/api/leads/forms` operations use the `leadForms` store and `leadForm` webhook entity.
 - Corrected lookup type selection, referral group/practice-area routing, status envelopes, and nested substatus mutations.
 
+### Fixed
+
+- Reject unsafe or out-of-range OpenAPI `int32` path IDs and return `404` for valid missing records instead of fabricating scientific-notation entities.
+
 ## [1.1.0] - 2026-07-27
 
 ### Added

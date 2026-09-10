@@ -1,18 +1,33 @@
 import { contactCustomFieldsGet, customFieldsGet } from '../client/sdk.gen';
-import type { CustomFieldsApi } from '../client/types.gen';
 import type { LeadDocketMockSeed, MockCustomFieldDefinition } from './index';
+import {
+  createLeadDocketLiveRequestOptions,
+  rejectUnknownProperties,
+  throwSafeLeadDocketDiscoveryError,
+  type LeadDocketLiveClientOptions,
+} from './live-client';
 
-export type LeadDocketLiveAuth =
-  | { apiKey: string; bearerToken?: never }
-  | { apiKey?: never; bearerToken: string };
+export type { LeadDocketLiveAuth } from './live-client';
 
-export type DiscoverLeadDocketCustomFieldsOptions = {
-  baseUrl: string;
-  auth: LeadDocketLiveAuth;
-  fetch?: typeof fetch;
-  signal?: AbortSignal;
-  allowInsecure?: boolean;
-};
+const CUSTOM_FIELD_PROPERTIES = new Set([
+  'Id',
+  'FieldName',
+  'Location',
+  'Directions',
+  'DisplayOrder',
+  'DefaultValues',
+  'Code',
+  'CaseTypes',
+  'DependsOn',
+  'FieldType',
+  'Disabled',
+  'ReadOnly',
+  'Hidden',
+  'Required',
+]);
+const CASE_TYPE_PROPERTIES = new Set(['Id', 'Name', 'Code', 'Description']);
+
+export type DiscoverLeadDocketCustomFieldsOptions = LeadDocketLiveClientOptions;
 
 export type LeadDocketCustomFieldSnapshot = {
   schemaVersion: 1;
@@ -22,16 +37,7 @@ export type LeadDocketCustomFieldSnapshot = {
 export async function discoverLeadDocketCustomFields(
   options: DiscoverLeadDocketCustomFieldsOptions,
 ): Promise<LeadDocketCustomFieldSnapshot> {
-  const baseUrl = normalizeLiveBaseUrl(options.baseUrl, options.allowInsecure ?? false);
-  const headers = liveAuthHeaders(options.auth);
-  const requestOptions = {
-    baseUrl,
-    fetch: options.fetch,
-    headers,
-    redirect: 'error' as const,
-    signal: options.signal,
-    throwOnError: true as const,
-  };
+  const requestOptions = createLeadDocketLiveRequestOptions(options);
 
   try {
     const [contactResult, customResult] = await Promise.all([
@@ -50,66 +56,55 @@ export async function discoverLeadDocketCustomFields(
       },
     };
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw error;
-    }
-    throw new Error(
+    throwSafeLeadDocketDiscoveryError(
+      error,
       'Unable to discover Lead Docket custom fields. Check the URL and credentials.',
-      {
-        cause: error,
-      },
     );
   }
 }
 
-function normalizeLiveBaseUrl(value: string, allowInsecure: boolean): string {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new TypeError('Lead Docket baseUrl must be a valid absolute URL.');
-  }
-
-  if (url.username || url.password || url.search || url.hash) {
-    throw new TypeError(
-      'Lead Docket baseUrl cannot include credentials, query parameters, or a hash.',
-    );
-  }
-  if (url.protocol !== 'https:' && !(allowInsecure && url.protocol === 'http:')) {
-    throw new TypeError('Lead Docket baseUrl must use HTTPS.');
-  }
-  if (url.pathname !== '/' && url.pathname !== '') {
-    throw new TypeError('Lead Docket baseUrl must be an origin without a path.');
-  }
-
-  return url.origin;
-}
-
-function liveAuthHeaders(auth: LeadDocketLiveAuth): HeadersInit {
-  if (auth.apiKey) {
-    return { api_key: auth.apiKey };
-  }
-  if (auth.bearerToken) {
-    return { Authorization: `Bearer ${auth.bearerToken}` };
-  }
-  throw new TypeError('Lead Docket authentication requires an API key or bearer token.');
-}
-
-function normalizeDefinitions(
-  value: Array<CustomFieldsApi> | undefined,
-  endpoint: string,
-): MockCustomFieldDefinition[] {
+function normalizeDefinitions(value: unknown, endpoint: string): MockCustomFieldDefinition[] {
   if (!Array.isArray(value)) {
     throw new TypeError(`Lead Docket returned an invalid custom-field response from ${endpoint}.`);
   }
 
-  return value.map((definition, index) => {
+  return value.map((definition) => {
     if (!definition || typeof definition !== 'object' || Array.isArray(definition)) {
-      throw new TypeError(`Lead Docket returned an invalid custom field at ${endpoint}[${index}].`);
+      throw new TypeError(`Lead Docket returned an invalid custom field from ${endpoint}.`);
     }
+    rejectUnknownProperties(definition, CUSTOM_FIELD_PROPERTIES, endpoint);
 
-    return Object.fromEntries(
-      Object.entries(definition).filter(([, property]) => property !== null),
-    ) as MockCustomFieldDefinition;
+    const normalized: Record<string, unknown> = {};
+    for (const [property, item] of Object.entries(definition)) {
+      if (item === null || item === undefined) continue;
+      if (property === 'CaseTypes') {
+        if (!Array.isArray(item)) throw invalidShape(endpoint);
+        normalized[property] = item.map((caseType) => normalizeCaseType(caseType, endpoint));
+      } else {
+        if (!isJsonPrimitive(item)) throw invalidShape(endpoint);
+        normalized[property] = item;
+      }
+    }
+    return normalized as MockCustomFieldDefinition;
   });
+}
+
+function normalizeCaseType(value: unknown, endpoint: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalidShape(endpoint);
+  rejectUnknownProperties(value, CASE_TYPE_PROPERTIES, endpoint);
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([property, item]) => {
+      if (item === null || item === undefined) return [];
+      if (!isJsonPrimitive(item)) throw invalidShape(endpoint);
+      return [[property, item]];
+    }),
+  );
+}
+
+function isJsonPrimitive(value: unknown): value is string | number | boolean {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+}
+
+function invalidShape(endpoint: string): Error {
+  return new TypeError(`Lead Docket returned an invalid custom-field response from ${endpoint}.`);
 }
